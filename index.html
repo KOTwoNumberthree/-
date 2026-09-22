@@ -749,6 +749,35 @@ function debounce(fn,ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(
 function download(filename, content, mime){ const blob=new Blob([content],{type:mime||'application/octet-stream'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},400); }
 function toast(msg, type){ const el=document.createElement('div'); el.className='toast'; if(type==='err') el.style.borderColor='var(--danger)'; el.textContent=msg; document.getElementById('toastwrap').appendChild(el); setTimeout(()=>{ el.style.opacity='0'; el.style.transition='opacity .3s'; setTimeout(()=>el.remove(),320); },type==='err'?4200:2600); }
 function yearLabel(y, world){ const cal = world && world.calendarUnit ? world.calendarUnit : '年'; return `${y}${cal}`; }
+function normalizeTreatyDate(v){
+  if(v===null||v===undefined||v==='') return null;
+  if(typeof v==='number' || typeof v==='string') { const y=Number(v); return Number.isFinite(y)?{year:y,month:null,day:null}:null; }
+  const y=Number(v.year); if(!Number.isFinite(y)) return null;
+  const m=v.month===''||v.month===null||v.month===undefined?null:Number(v.month);
+  const d=v.day===''||v.day===null||v.day===undefined?null:Number(v.day);
+  return {year:y,month:Number.isFinite(m)?clamp(m,1,12):null,day:Number.isFinite(d)?clamp(d,1,31):null};
+}
+function treatyDateNum(v){ const d=normalizeTreatyDate(v); if(!d) return null; return d.year + ((d.month||1)-1)/12 + ((d.day||1)-1)/365; }
+function treatyDateYear(v){ const d=normalizeTreatyDate(v); return d?d.year:null; }
+function treatyDateLabel(v, world){ const d=normalizeTreatyDate(v); if(!d) return '—'; const cal=world&&world.calendarUnit?world.calendarUnit:'年'; return `${d.year}${cal}${d.month?d.month+'月':''}${d.day?d.day+'日':''}`; }
+function treatyStatusAtYear(t, year){
+  const sign=treatyDateYear(t.signDate!==undefined?t.signDate:t.date);
+  const start=treatyDateYear(t.effectiveDate!==undefined?t.effectiveDate:t.date);
+  const end=treatyDateYear(t.endDate!==undefined?t.endDate:t.endYear);
+  if(sign!==null && year<sign) return '未成立';
+  if(start!==null && year<start) return '未発効';
+  if(end!==null && year>=end) return '終了';
+  return '有効';
+}
+function treatyIsEffectiveAtYear(t, year){ return treatyStatusAtYear(t,year)==='有効'; }
+function treatyEndYear(t){ return treatyDateYear(t.endDate!==undefined?t.endDate:t.endYear); }
+function treatyStartDate(t){ return normalizeTreatyDate(t.effectiveDate!==undefined?t.effectiveDate:t.date); }
+function treatySignDate(t){ return normalizeTreatyDate(t.signDate!==undefined?t.signDate:t.date); }
+function treatyCurrentFlag(t){
+  const end=treatyEndYear(t);
+  if(end!==null) return false;
+  return t.currentlyEffective===undefined ? true : !!t.currentlyEffective;
+}
 const nextFrame = () => new Promise(r=>requestAnimationFrame(()=>r()));
 
 /* ---------- 定数 ---------- */
@@ -1349,8 +1378,19 @@ function normalizeWorld(w){
   w.regions.forEach(r=>{ r.color = r.color||'#4a8f7c'; delete r.cells; });
   w.customLayers.forEach(l=>{ l.points = l.points||[]; if(l.visible===undefined) l.visible=true; });
   w.cities.forEach(c=>{ if(!c.kind) c.kind = c.isCapital?'首都':'都市'; if(!Array.isArray(c.lineIds)) c.lineIds=[]; });
-  w.events.forEach(e=>{ if(!Array.isArray(e.mapStateIds)) e.mapStateIds=[]; });
-  w.treaties.forEach(t=>{ if(!Array.isArray(t.mapStateIds)) t.mapStateIds=[]; if(!t.kind) t.kind='条約'; if(t.endYear===undefined) t.endYear=''; });
+  w.events.forEach(e=>{ if(!Array.isArray(e.mapStateIds)) e.mapStateIds=[]; if(!Array.isArray(e.relatedTreaties)) e.relatedTreaties=[]; });
+  w.treaties.forEach(t=>{
+    if(!Array.isArray(t.mapStateIds)) t.mapStateIds=[]; if(!Array.isArray(t.relatedEventIds)) t.relatedEventIds=[];
+    if(!t.kind) t.kind='条約';
+    if(t.signDate===undefined) t.signDate=normalizeTreatyDate(t.date);
+    if(t.effectiveDate===undefined) t.effectiveDate=normalizeTreatyDate(t.date);
+    if(t.endDate===undefined) t.endDate=(t.endYear!==undefined && t.endYear!=='')?normalizeTreatyDate(t.endYear):null;
+    if(t.endReason===undefined) t.endReason='';
+    if(t.currentlyEffective===undefined) t.currentlyEffective=(t.endDate===null);
+    if(t.endDate) t.currentlyEffective=false;
+    if(t.date===undefined || t.date==='') t.date=treatyDateYear(t.signDate)||w.currentYear;
+    t.endYear=treatyEndYear(t)===null?'':treatyEndYear(t);
+  });
   if(!w.worldlines.length){ w.worldlines.push({id:uid('wl'), name:'標準世界線', color:'#b8863f'}); }
   if(!w.mapStates.length){
     w.mapStates.push({id:uid('ms'), name:'基準地図', year:w.startYear, lineId:w.worldlines[0].id, parentId:null, full:true, note:'', changes:[], createdAt:Date.now(), vec:emptyVec()});
@@ -2244,7 +2284,7 @@ function paintSpecFor(tool){
   const p=MapView.paint;
   if(tool==='brush-terrain') return {layer:'terrain', value:p.terrain, mode:'set'};
   if(tool==='brush-elev') return {layer:'elev', value:p.elevValue, mode:p.elevMode};
-  if(tool==='brush-nation'){ const n=nationById(MapView.selectedNationId); if(!n){ toast('先に左パネルで塗る国家を選択してください','err'); return null; } if(!Number.isInteger(n.rid)||n.rid<=0){ console.error('[国家領土ブラシ] 国家ridが不正です', {nationId:n.id,rid:n.rid}); toast('国家IDが不正なため領土を描画できません。国家を保存し直してください','err'); return null; } return {layer:'nation', value:n.rid, mode:'set', onlyLand:p.onlyLand, protect:p.protect}; }
+  if(tool==='brush-nation'){ const n=nationById(MapView.selectedNationId); if(!n){ toast('先に左パネルで塗る国家を選択してください','err'); return null; } return {layer:'nation', value:n.rid, mode:'set', onlyLand:p.onlyLand, protect:p.protect}; }
   if(tool==='brush-area'){ if(!p.area){ toast('先に領域(占領/係争/カスタム)を選択または作成してください','err'); return null; } return {layer:'area', value:p.area, mode:'set', onlyLand:p.onlyLand, protect:p.protect}; }
   return null;
 }
@@ -2296,36 +2336,6 @@ function stampAt(cx, cy, spec){
 function strokeSegment(spec, ax,ay,bx,by){
   const step=Math.max(1, MapView.brush.size*0.18); const dist=Math.hypot(bx-ax,by-ay); const n=Math.max(1,Math.ceil(dist/step));
   for(let i=1;i<=n;i++){ const t=i/n; const x=ax+(bx-ax)*t, y=ay+(by-ay)*t; for(const s of (Array.isArray(spec)?spec:[spec])) stampAt(x,y,s); }
-}
-
-/* 国家領土ブラシの最小デバッグログ。保存対象(Store.tiles)と表示参照(resolveState)が同じタイルを見ているか確認する。 */
-function debugNationStroke(tiles, spec){
-  if(!tiles || !spec || spec.layer!=='nation') return;
-  const w=W(), sid=currentStateId(), S=stateById(sid), nat=nationByRid(spec.value);
-  const own=Store.tilesOf(sid).nation, R=resolveState(sid);
-  let painted=0, minX=Infinity, minY=Infinity, maxX=-1, maxY=-1, sameRefs=true;
-  for(const tl of tiles){
-    if(tl.layer!=='nation' || !tl.after) continue;
-    const after=tileDecode(tl.after,'nation');
-    const before=tl.before ? tileDecode(tl.before,'nation') : null;
-    const tx=tkx(tl.key), ty=tky(tl.key);
-    for(let i=0;i<TS2;i++){
-      if(after[i]!==spec.value || (before && before[i]===spec.value)) continue;
-      const lx=i&255, ly=i>>8, x=tx*TS+lx, y=ty*TS+ly;
-      if(x>=w.mapWidth || y>=w.mapHeight) continue;
-      painted++; minX=Math.min(minX,x); minY=Math.min(minY,y); maxX=Math.max(maxX,x); maxY=Math.max(maxY,y);
-    }
-    if(own.get(tl.key)!==R.layers.nation.get(tl.key)) sameRefs=false;
-  }
-  console.debug('[国家領土ブラシ]', {
-    nationId:nat?nat.id:null, nationRid:spec.value, nationName:nat?nat.name:null,
-    mapColor:nat?nationRenderColor(w,nat,w.currentYear):null, year:w.currentYear,
-    mapStateId:sid, mapState:S?stateLabel(S,w):null, paintedPixels:painted,
-    bounds:painted?{x0:minX,y0:minY,x1:maxX,y1:maxY}:null,
-    savedNationTiles:own.size, renderedNationTiles:R.layers.nation.size,
-    savedAndRenderedUseSameTouchedTiles:sameRefs, visible:MapView.activeLayers.nations,
-    layerOpacity:effectiveNationOpacity(w)
-  });
 }
 
 /* ---------- 塗りつぶし(スキャンライン・フラッドフィル) ---------- */
@@ -2999,9 +3009,11 @@ function renderTreatiesList(){
   if(!list.length){ grid.innerHTML = `<div class="empty" style="grid-column:1/-1;"><div class="big">▤</div>文書がまだありません。</div>`; return; }
   grid.innerHTML = list.map(x=>{
     const parties = (x.parties||[]).map(id=>{ const n=nationById(id); return n?n.name:''; }).filter(Boolean).join(', ');
+    const status=treatyStatusAtYear(x,w.currentYear);
+    const start=treatyStartDate(x), end=x.currentlyEffective?'現在':treatyDateLabel(x.endDate,w);
     return `<div class="card" data-treaty="${x.id}">
       <h4>${esc(x.name)}</h4>
-      <div class="meta">${yearLabel(x.date,w)}</div>
+      <div class="meta">締結 ${esc(treatyDateLabel(treatySignDate(x),w))} ・ ${esc(treatyDateLabel(start,w))} ～ ${esc(end)} <span class="tag">${esc(status)}</span></div>
       <div class="desc">${esc(parties)}</div>
     </div>`;
   }).join('');
@@ -3309,10 +3321,7 @@ function openNationModal(nationId){
       n.description=document.getElementById('fDesc').value;
       n.notes=document.getElementById('fNotes').value;
       mutate(isNew?'国家を作成: '+n.name:'国家を編集: '+n.name, ()=>{
-        // 国家領土ラスターは数値 rid を保存するため、新規国家は作成時点で必ず rid を確定する。
-        // rid が未定義のまま Uint16Array に書くと 0 になり、保存・再描画しても領土として表示されない。
-        if(isNew){ if(!n.rid) allocNationRid(w,n); w.nations.push(n); }
-        else Object.assign(nationById(nationId), n);
+        if(isNew) w.nations.push(n); else Object.assign(nationById(nationId), n);
       });
       closeModal();
       renderNationsList();
@@ -3557,7 +3566,7 @@ function openRegionDetail(regionId){
 /* ---------- 出来事 ---------- */
 function openEventModal(eventId, presetXY){
   const w = W(); const isNew = !eventId;
-  const e = isNew ? {id:uid('event'), year:w.currentYear, month:'', day:'', title:'', description:'', category:'政治', relatedNations:[], relatedRegions:[], relatedCities:[], relatedPeople:[], relatedOrgs:[], x: presetXY?presetXY.x:null, y: presetXY?presetXY.y:null, notes:''} : deepClone(eventById(eventId));
+  const e = isNew ? {id:uid('event'), year:w.currentYear, month:'', day:'', title:'', description:'', category:'政治', relatedNations:[], relatedRegions:[], relatedCities:[], relatedPeople:[], relatedOrgs:[], relatedTreaties:[], x: presetXY?presetXY.x:null, y: presetXY?presetXY.y:null, notes:''} : deepClone(eventById(eventId));
   const body = `<div class="formgrid">
     <div><label>タイトル</label><input id="evTitle" value="${esc(e.title)}"></div>
     <div><label>カテゴリ</label><select id="evCat">${EVENT_CATEGORIES.map(c=>`<option ${c===e.category?'selected':''}>${c}</option>`).join('')}</select></div>
@@ -3571,6 +3580,7 @@ function openEventModal(eventId, presetXY){
     <div class="full"><label>関係都市</label><div id="evCities"></div></div>
     <div class="full"><label>関係人物</label><div id="evPeople"></div></div>
     <div class="full"><label>関係組織</label><div id="evOrgs"></div></div>
+    <div class="full"><label>関係条約・文書</label><div id="evTreaties"></div></div>
     <div class="full"><label>メモ</label><textarea id="evNotes" rows="2">${esc(e.notes)}</textarea></div>
   </div>`;
   openModal(isNew?'出来事を追加':'出来事を編集', body, [
@@ -3583,7 +3593,7 @@ function openEventModal(eventId, presetXY){
       e.day=numOrEmpty(document.getElementById('evDay').value);
       e.description=document.getElementById('evDesc').value;
       e.notes=document.getElementById('evNotes').value;
-      mutate(isNew?'出来事を追加: '+e.title:'出来事を編集: '+e.title, ()=>{ if(isNew) w.events.push(e); else Object.assign(eventById(eventId), e); });
+      mutate(isNew?'出来事を追加: '+e.title:'出来事を編集: '+e.title, ()=>{ if(isNew) w.events.push(e); else Object.assign(eventById(eventId), e); w.treaties.forEach(t=>{ const has=(e.relatedTreaties||[]).includes(t.id); t.relatedEventIds=(t.relatedEventIds||[]).filter(id=>id!==e.id); if(has) t.relatedEventIds.push(e.id); }); });
       closeModal(); renderEventsList(); if(currentView==='dashboard') renderDashboard();
     }},
   ]);
@@ -3592,6 +3602,7 @@ function openEventModal(eventId, presetXY){
   multiSelectChips('evCities', w.cities, e.relatedCities, (ids)=> e.relatedCities=ids);
   multiSelectChips('evPeople', w.people, e.relatedPeople, (ids)=> e.relatedPeople=ids);
   multiSelectChips('evOrgs', w.organizations, e.relatedOrgs, (ids)=> e.relatedOrgs=ids);
+  multiSelectChips('evTreaties', w.treaties, e.relatedTreaties||[], (ids)=> e.relatedTreaties=ids);
 }
 
 /* ---------- 戦争 ---------- */
@@ -3632,28 +3643,53 @@ function openWarModal(warId){
 
 /* ---------- 条約/文書 ---------- */
 function openTreatyModal(treatyId){
-  const w = W(); const isNew = !treatyId;
-  const x = isNew ? {id:uid('treaty'), name:'', date:w.currentYear, parties:[], content:'', territoryChange:'', signatories:'', notes:''} : deepClone(treatyById(treatyId));
+  const w=W(); const isNew = !treatyId;
+  const x = isNew ? {id:uid('treaty'), name:'', date:w.currentYear, signDate:{year:w.currentYear,month:null,day:null}, effectiveDate:{year:w.currentYear,month:null,day:null}, endDate:null, currentlyEffective:true, endReason:'', parties:[], content:'', territoryChange:'', signatories:'', notes:''} : deepClone(treatyById(treatyId));
+  if(x.signDate===undefined) x.signDate=normalizeTreatyDate(x.date);
+  if(x.effectiveDate===undefined) x.effectiveDate=normalizeTreatyDate(x.date);
+  if(x.endDate===undefined) x.endDate=(x.endYear!==undefined&&x.endYear!=='')?normalizeTreatyDate(x.endYear):null;
+  if(x.currentlyEffective===undefined) x.currentlyEffective=!x.endDate;
+  const dp=(d)=>{ const z=normalizeTreatyDate(d)||{}; return {y:z.year??'',m:z.month??'',d:z.day??''}; };
+  const sd=dp(x.signDate), ed=dp(x.effectiveDate), xd=dp(x.endDate);
   const body = `<div class="formgrid">
     <div><label>文書名</label><input id="tName" value="${esc(x.name)}"></div>
-    <div><label>締結年</label><input type="number" id="tDate" value="${x.date}"></div>
+    <div><label>種類</label><select id="tKind">${TREATY_KINDS.map(k=>`<option ${k===(x.kind||'条約')?'selected':''}>${esc(k)}</option>`).join('')}</select></div>
+    <div class="full"><label>締結日</label><div style="display:flex;gap:6px;align-items:center;"><input type="number" id="tSignY" placeholder="年" value="${sd.y}" style="width:100px;"><input type="number" id="tSignM" placeholder="月(任意)" min="1" max="12" value="${sd.m}" style="width:100px;"><input type="number" id="tSignD" placeholder="日(任意)" min="1" max="31" value="${sd.d}" style="width:100px;"></div></div>
+    <div class="full"><label>発効日(未設定なら締結日)</label><div style="display:flex;gap:6px;align-items:center;"><input type="number" id="tEffY" placeholder="年" value="${ed.y}" style="width:100px;"><input type="number" id="tEffM" placeholder="月(任意)" min="1" max="12" value="${ed.m}" style="width:100px;"><input type="number" id="tEffD" placeholder="日(任意)" min="1" max="31" value="${ed.d}" style="width:100px;"></div><small class="hint">締結日と同じ場合は同じ日付を入力できます。</small></div>
+    <div class="full"><label>有効終了日</label><div style="display:flex;gap:6px;align-items:center;"><input type="number" id="tEndY" placeholder="年" value="${xd.y}" style="width:100px;"><input type="number" id="tEndM" placeholder="月(任意)" min="1" max="12" value="${xd.m}" style="width:100px;"><input type="number" id="tEndD" placeholder="日(任意)" min="1" max="31" value="${xd.d}" style="width:100px;"></div></div>
+    <div class="full"><label class="lp-chk"><input type="checkbox" id="tCurrent" ${x.currentlyEffective?'checked':''}> 現在も有効</label></div>
+    <div class="full"><label>終了理由</label><input id="tEndReason" value="${esc(x.endReason||'')}" placeholder="失効・破棄・廃棄・更新など"></div>
+    <div class="full"><div class="banner">締結日：<b id="tPreviewSign">${esc(treatyDateLabel(x.signDate,w))}</b><br>有効期間：<b id="tPreviewPeriod">${esc(treatyDateLabel(x.effectiveDate,w))} ～ ${x.currentlyEffective?'現在':esc(treatyDateLabel(x.endDate,w))}</b></div></div>
     <div class="full"><label>参加国</label><div id="tParties"></div></div>
     <div class="full"><label>署名者</label><input id="tSign" value="${esc(x.signatories)}"></div>
     <div class="full"><label>内容(要約)</label><textarea id="tContent" rows="3">${esc(x.content)}</textarea></div>
     <div class="full"><label>領土変更</label><textarea id="tTerr" rows="2">${esc(x.territoryChange)}</textarea></div>
+    <div class="full"><label>関連する歴史イベント</label><div id="tEvents"></div></div>
     <div class="full"><label>メモ</label><textarea id="tNotes" rows="2">${esc(x.notes)}</textarea></div>
   </div>`;
   openModal(isNew?'文書を追加':'文書を編集', body, [
     {label:'キャンセル', onClick: closeModal},
     {label:'保存', cls:'primary', onClick: ()=>{
-      x.name=document.getElementById('tName').value.trim()||'無題の文書';
-      x.date=Number(document.getElementById('tDate').value)||0;
+      const readDate=(p)=>{ const y=Number(document.getElementById(p+'Y').value); if(!Number.isFinite(y)) return null; const m=document.getElementById(p+'M').value, d=document.getElementById(p+'D').value; return {year:y,month:m===''?null:Number(m),day:d===''?null:Number(d)}; };
+      const sign=readDate('tSign'), eff=readDate('tEff')||sign, cur=document.getElementById('tCurrent').checked, end=cur?null:readDate('tEnd');
+      if(!sign){ toast('締結年を入力してください','err'); return; }
+      if(!eff){ toast('発効年を入力してください','err'); return; }
+      if(!cur && !end){ toast('現在も有効をOFFにする場合は終了年を入力してください','err'); return; }
+      if(treatyDateNum(eff)<treatyDateNum(sign)){ toast('発効日は締結日以降にしてください','err'); return; }
+      if(end && treatyDateNum(end)<treatyDateNum(eff)){ toast('終了日は発効日以降にしてください','err'); return; }
+      x.name=document.getElementById('tName').value.trim()||'無題の文書'; x.kind=document.getElementById('tKind').value;
+      x.signDate=sign; x.effectiveDate=eff; x.endDate=end; x.currentlyEffective=cur; x.endReason=document.getElementById('tEndReason').value.trim();
+      x.date=sign.year; x.endYear=end?end.year:'';
       x.signatories=document.getElementById('tSign').value; x.content=document.getElementById('tContent').value; x.territoryChange=document.getElementById('tTerr').value; x.notes=document.getElementById('tNotes').value;
-      mutate(isNew?'文書を追加: '+x.name:'文書を編集: '+x.name, ()=>{ if(isNew) w.treaties.push(x); else Object.assign(treatyById(treatyId), x); });
-      closeModal(); renderTreatiesList();
+      mutate(isNew?'文書を追加: '+x.name:'文書を編集: '+x.name, ()=>{ if(isNew) w.treaties.push(x); else Object.assign(treatyById(treatyId), x); w.events.forEach(e=>{ const has=(x.relatedEventIds||[]).includes(e.id); e.relatedTreaties=(e.relatedTreaties||[]).filter(id=>id!==x.id); if(has) e.relatedTreaties.push(x.id); }); });
+      closeModal(); renderTreatiesList(); if(currentView==='chrono') renderChronoView();
     }},
   ]);
+  const syncCurrent=()=>{ const cur=document.getElementById('tCurrent').checked; ['tEndY','tEndM','tEndD'].forEach(id=>document.getElementById(id).disabled=cur); const endLabel=cur?'現在':treatyDateLabel({year:Number(document.getElementById('tEndY').value),month:document.getElementById('tEndM').value,day:document.getElementById('tEndD').value},w); const effLabel=treatyDateLabel({year:Number(document.getElementById('tEffY').value),month:document.getElementById('tEffM').value,day:document.getElementById('tEffD').value},w); const signLabel=treatyDateLabel({year:Number(document.getElementById('tSignY').value),month:document.getElementById('tSignM').value,day:document.getElementById('tSignD').value},w); document.getElementById('tPreviewSign').textContent=signLabel; document.getElementById('tPreviewPeriod').textContent=`${effLabel} ～ ${endLabel}`; };
+  ['tCurrent','tSignY','tSignM','tSignD','tEffY','tEffM','tEffD','tEndY','tEndM','tEndD'].forEach(id=>document.getElementById(id).addEventListener('input',syncCurrent));
+  document.getElementById('tCurrent').addEventListener('change',syncCurrent); syncCurrent();
   multiSelectChips('tParties', w.nations, x.parties, (ids)=> x.parties=ids);
+  multiSelectChips('tEvents', w.events, x.relatedEventIds||[], (ids)=> x.relatedEventIds=ids);
 }
 
 /* ---------- 外交関係 ---------- */
@@ -4301,7 +4337,7 @@ function wireMapCanvas(){
     const d=MapView.drag; const p=posOf(e); MapView.drag=null; MapView.isPanning=false; refreshToolbarActive();
     if(!d) return;
     if(d.type==='selpan' && !d.moved){ doSelectAt(p.x,p.y); }
-    else if(d.type==='stroke'){ const changed=Stroke.end(); if(!Array.isArray(d.spec) && d.spec && d.spec.layer==='nation') debugNationStroke(changed,d.spec); renderMap(); scheduleRightPanel(); }
+    else if(d.type==='stroke'){ Stroke.end(); renderMap(); scheduleRightPanel(); }
     else if(d.type==='rect'){ renderMapLayerPanel(); }
     else if(d.type==='vertex'){ W().updatedAt=Date.now(); logHistory('頂点を移動(境界線)'); persistDebounced(); scheduleRightPanel(); }
   };
@@ -4362,7 +4398,7 @@ function relatedToNation(nid, year){
   return {
     people: w.people.filter(p=>p.nationId===nid && alive(p.birth,p.death)),
     orgs: w.organizations.filter(o=>o.nationId===nid && alive(o.founded,o.dissolved)),
-    treaties: w.treaties.filter(t=>(t.parties||[]).includes(nid) && alive(t.date,t.endYear)),
+    treaties: w.treaties.filter(t=>(t.parties||[]).includes(nid) && treatyIsEffectiveAtYear(t,year)),
     wars: w.wars.filter(x=>(x.participants||[]).some(p=>p.nationId===nid) && alive(x.start,x.end)),
     events: w.events.filter(e=>(e.relatedNations||[]).includes(nid) && Math.abs((e.year||0)-year)<=25),
     cities: w.cities.filter(c=>c.nationId===nid && alive(c.founded,c.ended)),
@@ -4374,8 +4410,8 @@ function yearSummary(year){
     nations:w.nations.filter(n=>nationIsActive(n,year)),
     people:w.people.filter(p=>alive(p.birth,p.death)),
     orgs:w.organizations.filter(o=>alive(o.founded,o.dissolved)),
-    treaties:w.treaties.filter(t=>alive(t.date,t.endYear) && (t.kind||'条約')==='条約'),
-    docs:w.treaties.filter(t=>alive(t.date,t.endYear) && (t.kind||'条約')!=='条約'),
+    treaties:w.treaties.filter(t=>treatyIsEffectiveAtYear(t,year) && (t.kind||'条約')==='条約'),
+    docs:w.treaties.filter(t=>treatyIsEffectiveAtYear(t,year) && (t.kind||'条約')!=='条約'),
     cities:w.cities.filter(c=>alive(c.founded,c.ended)),
     wars:w.wars.filter(x=>alive(x.start,x.end)),
     events:w.events.filter(e=>e.year===year),
@@ -4886,7 +4922,7 @@ function chronoItems(){
   const add=(kind,cat,raw,name,sf,ef)=> items.push({key:kind+':'+raw.id, kind, cat, id:raw.id, name:name||'(無名)', s:chronoNum(raw[sf]), e:chronoNum(raw[ef]), sf, ef, raw});
   w.nations.forEach(n=> add('nation','国家',n,n.name,'founded','ended'));
   w.organizations.forEach(o=> add('org', (ORG_TYPES.includes(o.type)&&o.type!=='その他')?o.type:'組織', o, o.name,'founded','dissolved'));
-  w.treaties.forEach(t=> add('treaty', t.kind||'条約', t, t.name,'date','endYear'));
+  w.treaties.forEach(t=>{ const s=treatyStartDate(t), e=treatyEndYear(t)!==null?normalizeTreatyDate(t.endDate||t.endYear):null; items.push({key:'treaty:'+t.id,kind:'treaty',cat:t.kind||'条約',id:t.id,name:t.name||'(無名)',s:treatyDateNum(s),e:e?treatyDateNum(e):null,sf:'effectiveDate',ef:'endDate',raw:t}); });
   w.people.forEach(p=> add('person','人物',p,p.name,'birth','death'));
   w.cities.forEach(c=> add('city','都市',c,c.name,'founded','ended'));
   w.wars.forEach(x=> add('war','戦争',x,x.name,'start','end'));
@@ -4962,7 +4998,7 @@ function updateChronoMarker(){
   const p=chronoPos(w.currentYear);
   if(g.vert){ line.style.cssText=`left:${g.axisW}px;right:0;top:${p}px;height:0;border-top:2px solid var(--brass);`; } else { line.style.cssText=`top:${g.axisH}px;bottom:0;left:${p}px;width:0;border-left:2px solid var(--brass);`; }
   document.getElementById('chrNowLab').textContent=yearLabel(w.currentYear,w);
-  document.querySelectorAll('.chr-bar').forEach(b=>{ const it=Chrono._items&&Chrono._items.get(b.dataset.key); if(!it) return; const alive=w.currentYear>=it.ds && w.currentYear<=Math.max(it.de,it.ds); b.classList.toggle('alive',alive); b.classList.toggle('dim',Chrono.highlight && !alive); });
+  document.querySelectorAll('.chr-bar').forEach(b=>{ const it=Chrono._items&&Chrono._items.get(b.dataset.key); if(!it) return; const alive=it.kind==='treaty' ? treatyIsEffectiveAtYear(it.raw,w.currentYear) : (w.currentYear>=it.ds && w.currentYear<=Math.max(it.de,it.ds)); b.classList.toggle('alive',alive); b.classList.toggle('dim',Chrono.highlight && !alive); });
 }
 function scrollChronoToNow(){
   const sc=document.getElementById('chrScroll'); const g=Chrono._geo; if(!sc||!g) return; const p=chronoPos(W().currentYear);
