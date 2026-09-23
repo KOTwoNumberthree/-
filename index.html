@@ -399,6 +399,32 @@ textarea.mono{font-family:var(--font-mono);font-size:11.5px;}
 .chr-now span{position:absolute;top:-2px;left:2px;font-family:var(--font-mono);font-size:10px;color:var(--brass);background:var(--panel);padding:0 3px;white-space:nowrap;}
 .chr-canvas.h .chr-now span{top:2px;left:2px;}
 
+/* ===== チュートリアル ===== */
+#tutorialLayer{display:none;}
+#tutorialLayer.active{display:block;}
+.tut-blocker{position:fixed;background:rgba(6,8,12,0.62);z-index:9000;transition:opacity .12s;pointer-events:none;}
+#tutHighlight{position:fixed;z-index:9001;border:2px solid var(--brass);border-radius:6px;box-shadow:0 0 0 3px rgba(184,134,63,0.35), 0 0 18px rgba(184,134,63,0.5);pointer-events:none;transition:top .18s ease,left .18s ease,width .18s ease,height .18s ease,opacity .12s;}
+#tutHighlight.none{opacity:0;}
+#tutCard{position:fixed;z-index:9002;width:320px;max-width:calc(100vw - 24px);background:var(--panel);border:1px solid var(--brass);border-radius:var(--radius-m);box-shadow:0 12px 32px rgba(0,0,0,0.5);padding:14px 16px;font-size:13px;transition:top .18s ease,left .18s ease;}
+#tutCardHead{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
+#tutCardCat{font-size:11px;color:var(--brass);letter-spacing:.03em;text-transform:uppercase;}
+#tutStepNum{font-family:var(--font-mono);font-size:11px;color:var(--text-faint);margin-bottom:2px;}
+#tutTitle{margin:2px 0 6px;font-size:15.5px;}
+#tutDesc{color:var(--text-dim);line-height:1.55;max-height:220px;overflow-y:auto;}
+#tutActionHint{margin-top:8px;padding:7px 9px;background:var(--teal-soft);color:#eafff6;border-radius:var(--radius-s);font-size:12px;display:none;}
+#tutActionHint.show{display:block;}
+#tutCardFoot{display:flex;gap:6px;margin-top:12px;justify-content:space-between;}
+#tutCardFoot #tutNextBtn{margin-left:auto;}
+.tut-hub-cat{border:1px solid var(--line);border-radius:var(--radius-m);padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:border-color .12s,background .12s;}
+.tut-hub-cat:hover{border-color:var(--brass);background:var(--panel-2);}
+.tut-hub-cat .tuth-row{display:flex;align-items:center;justify-content:space-between;}
+.tut-hub-cat h5{margin:0;font-size:13.5px;}
+.tut-hub-cat p{margin:4px 0 0;font-size:11.5px;color:var(--text-faint);}
+.tut-badge{font-size:10.5px;padding:2px 8px;border-radius:10px;white-space:nowrap;}
+.tut-badge.notstarted{background:var(--panel-2);color:var(--text-faint);border:1px solid var(--line);}
+.tut-badge.inprogress{background:rgba(199,154,63,0.18);color:var(--warn);border:1px solid var(--warn);}
+.tut-badge.completed{background:rgba(90,154,111,0.18);color:var(--ok);border:1px solid var(--ok);}
+
 </style>
 </head>
 <body>
@@ -431,6 +457,7 @@ textarea.mono{font-family:var(--font-mono);font-size:11.5px;}
       <button class="icon-btn" id="undoBtn" data-tip="元に戻す (Ctrl+Z)|直前の編集操作を1つ取り消します">↶</button>
       <button class="icon-btn" id="redoBtn" data-tip="やり直す (Ctrl+Y)|取り消した操作をやり直します">↷</button>
       <button class="icon-btn" id="searchBtn" data-tip="検索 (Ctrl+K)|国家・地域・都市・人物・組織・戦争・条約・出来事を横断検索します">🔍</button>
+      <button class="icon-btn" id="tutorialHelpBtn" data-tip="チュートリアル|このツールの使い方を、実際に操作しながら学べます">？</button>
       <button class="btn small" id="saveBtn" data-tip="保存|現在の編集内容をすぐにブラウザへ保存します(通常は自動保存されます)">保存</button>
       <button class="btn small" id="fileMenuBtn" data-tip="ファイル|JSON/CSV/PNGでの書き出しや読み込み、バックアップ作成などを行います">ファイル ▾</button>
     </div>
@@ -726,6 +753,29 @@ textarea.mono{font-family:var(--font-mono);font-size:11.5px;}
 
 <div id="toastwrap"></div>
 <div id="tooltip" role="tooltip"></div>
+
+<div id="tutorialLayer" aria-hidden="true">
+  <div class="tut-blocker" id="tutB-top"></div>
+  <div class="tut-blocker" id="tutB-bottom"></div>
+  <div class="tut-blocker" id="tutB-left"></div>
+  <div class="tut-blocker" id="tutB-right"></div>
+  <div id="tutHighlight"></div>
+  <div id="tutCard">
+    <div id="tutCardHead">
+      <span id="tutCardCat"></span>
+      <button class="icon-btn small" id="tutCloseBtn" title="チュートリアルを終了">✕</button>
+    </div>
+    <div id="tutStepNum"></div>
+    <h4 id="tutTitle"></h4>
+    <div id="tutDesc"></div>
+    <div id="tutActionHint"></div>
+    <div id="tutCardFoot">
+      <button class="btn small" id="tutPrevBtn">← 戻る</button>
+      <button class="btn small ghost" id="tutSkipBtn">スキップ</button>
+      <button class="btn small primary" id="tutNextBtn">次へ →</button>
+    </div>
+  </div>
+</div>
 
 <script>
 
@@ -1147,12 +1197,19 @@ function updateUndoRedoButtons(){
   if(r){ r.disabled = History.redo.length===0; }
 }
 function mutate(summary, fn){
-  if(typeof roleAllows==='function' && !roleAllows(summary)){ toast('現在の権限(「'+roleLabel(currentRole)+'」)ではこの操作はできません','err'); return; }
-  pushMetaUndo(summary||'編集');
-  fn();
-  W().updatedAt = Date.now();
-  if(summary) logHistory(summary);
-  persistDebounced();
+  if(typeof roleAllows==='function' && !roleAllows(summary)){ toast('現在の権限(「'+roleLabel(currentRole)+'」)ではこの操作はできません','err'); return false; }
+  try{
+    pushMetaUndo(summary||'編集');
+    fn();
+    W().updatedAt = Date.now();
+    if(summary) logHistory(summary);
+    persistDebounced();
+    return true;
+  }catch(e){
+    console.error('mutation failed:', summary, e);
+    toast('保存処理に失敗しました: '+(e?.message||e),'err');
+    return false;
+  }
 }
 /* メタデータ + タイルの両方を変更する重い操作(キャンバス変更・年代削除など)用 */
 function withTilesUndo(label, fn){
@@ -1329,6 +1386,7 @@ function createWorld(opts){
     relations: [], people: [], organizations: [],
     metrics: deepClone(DEFAULT_METRICS), statistics: [],
     assets: [], eras: [], history: [],
+    refImages: [],
     createdAt: Date.now(), updatedAt: Date.now(),
   };
   Store.reset(id);
@@ -1363,7 +1421,20 @@ function normalizeWorld(w){
   w.nationColorOpacity = w.nationColorOpacity!==undefined ? w.nationColorOpacity : 0.5;
   w.mapMode = w.mapMode || 'terrain-political';
   w.pixelGridEnabled = !!w.pixelGridEnabled;
-  ['customLayers','regions','nations','cities','events','wars','treaties','relations','people','organizations','statistics','assets','eras','history','areas','worldlines','mapStates'].forEach(k=>{ if(!Array.isArray(w[k])) w[k]=[]; });
+  ['customLayers','regions','nations','cities','events','wars','treaties','relations','people','organizations','statistics','assets','eras','history','areas','worldlines','mapStates','refImages'].forEach(k=>{ if(!Array.isArray(w[k])) w[k]=[]; });
+  w.refImages.forEach(r=>{
+    if(!r.id) r.id = uid('refimg');
+    r.name = r.name || '参考画像';
+    r.x = Number.isFinite(r.x)?r.x:0; r.y = Number.isFinite(r.y)?r.y:0;
+    r.w = Number.isFinite(r.w) && r.w>0 ? r.w : Math.max(10, w.extentW*0.3);
+    r.h = Number.isFinite(r.h) && r.h>0 ? r.h : Math.max(10, w.extentH*0.3);
+    r.rotation = Number.isFinite(r.rotation)?r.rotation:0;
+    r.opacity = Number.isFinite(r.opacity)?clamp(r.opacity,0,1):0.6;
+    r.visible = r.visible!==false;
+    r.locked = !!r.locked;
+    r.order = r.order==='above' ? 'above' : 'below';
+    r.lockAspect = r.lockAspect!==false;
+  });
   if(!Array.isArray(w.metrics) || !w.metrics.length) w.metrics = deepClone(DEFAULT_METRICS);
   let maxN=0; w.nations.forEach(n=>{ if(n.rid) maxN=Math.max(maxN,n.rid); });
   w.nextNationRid = Math.max(w.nextNationRid||1, maxN+1);
@@ -1607,7 +1678,8 @@ const MapView = {
   paint:{terrain:3, area:0, elevMode:'set', elevValue:140, onlyLand:false, protect:false, eraseOnlyOwn:true},
   eraseLayers:{terrain:false, elev:false, nation:true, area:false},
   fill:{ref:'auto', tol:0, bar:{nation:false, coast:true, terrain:false, admin:false, customBorder:false, rivers:false}},
-  activeLayers:{terrain:true, areas:true, nations:true, borders:true, coast:true, admin:true, adminLabels:true, river:true, road:true, rail:true, border:true, range:true, cities:true, labels:true, events:true, pixelGrid:false},
+  activeLayers:{terrain:true, areas:true, nations:true, borders:true, coast:true, admin:true, adminLabels:true, river:true, road:true, rail:true, border:true, range:true, cities:true, labels:true, events:true, pixelGrid:false, refImages:true},
+  selectedRefImageId:null,
   lineOpt:{smooth:true, snap:true},
   adminOpt:{mode:'add'},
   selection:null, selectedNationId:null, selectedRegionId:null, activeCustomLayerId:null,
@@ -1918,6 +1990,26 @@ function flushRender(){
 
 /* ---------- 本描画 ---------- */
 const _LC = {nation:null, area:null};
+function renderRefImages(ctx, view, order){
+  const w=W(); if(!w || !Array.isArray(w.refImages) || !w.refImages.length) return;
+  if(MapView.activeLayers && MapView.activeLayers.refImages===false) return;
+  const list = w.refImages.filter(r=> r.visible!==false && (r.order==='above'?'above':'below')===order);
+  if(!list.length) return;
+  ctx.save();
+  ctx.setTransform(view.scale,0,0,view.scale,view.offX,view.offY);
+  ctx.imageSmoothingEnabled = true;
+  list.forEach(r=>{
+    const img = getRefImageEl(r); if(!img) return;
+    ctx.save();
+    ctx.globalAlpha = (r.opacity!==undefined && r.opacity!==null) ? r.opacity : 0.6;
+    const c = refImgCenter(r);
+    ctx.translate(c.x, c.y);
+    ctx.rotate((r.rotation||0)*Math.PI/180);
+    ctx.drawImage(img, -r.w/2, -r.h/2, r.w, r.h);
+    ctx.restore();
+  });
+  ctx.restore();
+}
 function layerCanvas(name, cw, ch, own){
   if(own){ const c=document.createElement('canvas'); c.width=cw; c.height=ch; return c; }
   let c=_LC[name]; if(!c){ c=document.createElement('canvas'); _LC[name]=c; }
@@ -2092,6 +2184,13 @@ function renderBase(ctx, cw, ch, view, opts){
     });
   }
   ctx.restore();
+  // 参考画像は「地図データそのもの」ではなく編集用の補助オーバーレイのため、
+  // 地形・水域・国家領土・行政境界・国境・都市/道路/鉄道・ラベルなど
+  // すべての地図データより必ず上(ただし選択枠やチュートリアルUIよりは下)に描画する。
+  // order フィールド('below'/'above')は既存データ互換のため保持しつつ、
+  // 「below」グループを先に、「above」グループを後に描くことで
+  // 参考画像同士の重なり順の意味だけを残す(地図の下に隠れることはない)。
+  if(!own){ renderRefImages(ctx, view, 'below'); renderRefImages(ctx, view, 'above'); }
   ctx.setTransform(1,0,0,1,0,0);
 }
 function drawPointSymbol(ctx,c,kind,tier,S){
@@ -2227,6 +2326,26 @@ function renderOverlay(){
     const cur=MapView.cursorUnit; ctx.strokeStyle='#7dffb0'; ctx.lineWidth=1.6/S; ctx.beginPath(); ctx.arc(cur.x,cur.y,8/S,0,7); ctx.stroke();
   }
   ctx.setTransform(1,0,0,1,0,0);
+
+  // ---- 参考画像の選択枠・ハンドル(画面座標系) ----
+  if(tool==='refimg' && MapView.selectedRefImageId){
+    const rimg = refImageById(MapView.selectedRefImageId);
+    if(rimg){
+      const H = refImgHandlesScreen(rimg);
+      ctx.save();
+      ctx.strokeStyle = rimg.locked ? 'rgba(200,200,200,0.6)' : '#7dc4ff'; ctx.lineWidth=1.6; ctx.setLineDash(rimg.locked?[5,4]:[]);
+      ctx.beginPath(); H.corners.forEach((p,i)=> i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)); ctx.closePath(); ctx.stroke();
+      ctx.setLineDash([]);
+      if(!rimg.locked){
+        ctx.beginPath(); ctx.moveTo((H.corners[0].x+H.corners[1].x)/2,(H.corners[0].y+H.corners[1].y)/2); ctx.lineTo(H.rotate.x,H.rotate.y); ctx.strokeStyle='rgba(125,196,255,0.8)'; ctx.stroke();
+        H.corners.forEach(p=>{ ctx.fillStyle='#fff'; ctx.strokeStyle='#12161d'; ctx.lineWidth=1.2; ctx.beginPath(); ctx.rect(p.x-REFIMG_HANDLE_PX/2,p.y-REFIMG_HANDLE_PX/2,REFIMG_HANDLE_PX,REFIMG_HANDLE_PX); ctx.fill(); ctx.stroke(); });
+        ctx.fillStyle='#7dc4ff'; ctx.strokeStyle='#12161d'; ctx.beginPath(); ctx.arc(H.rotate.x,H.rotate.y,REFIMG_HANDLE_PX/2+1,0,7); ctx.fill(); ctx.stroke();
+      } else {
+        ctx.fillStyle='rgba(12,15,20,0.75)'; ctx.font='11px sans-serif'; ctx.fillText('🔒 ロック中', H.corners[0].x, H.corners[0].y-8);
+      }
+      ctx.restore();
+    }
+  }
 
   // ---- 画面座標系: 範囲選択 / 貼り付けプレビュー / ブラシカーソル / HUD ----
   const P=ppu(), kx=S/P.x, ky=S/P.y;
@@ -3303,7 +3422,7 @@ function openNationModal(nationId){
     </div>`;
   openModal(isNew?'国家を作成':'国家を編集', body, [
     {label:'キャンセル', onClick: closeModal},
-    {label:'保存', cls:'primary', onClick: ()=>{
+    {label:'保存', cls:'primary', onClick: async ()=>{
       n.name=document.getElementById('fName').value.trim()||'無名の国';
       n.code=document.getElementById('fCode').value.trim();
       n.founded=numOrEmpty(document.getElementById('fFounded').value);
@@ -3320,9 +3439,17 @@ function openNationModal(nationId){
       n.area=numOrEmpty(document.getElementById('fArea').value);
       n.description=document.getElementById('fDesc').value;
       n.notes=document.getElementById('fNotes').value;
-      mutate(isNew?'国家を作成: '+n.name:'国家を編集: '+n.name, ()=>{
-        if(isNew) w.nations.push(n); else Object.assign(nationById(nationId), n);
+      const changed = mutate(isNew?'国家を作成: '+n.name:'国家を編集: '+n.name, ()=>{
+        if(isNew){ allocNationRid(w, n); w.nations.push(n); } else {
+          const target = nationById(nationId);
+          if(!target) throw new Error('編集対象の国家が見つかりません');
+          Object.assign(target, n);
+        }
       });
+      if(!changed) return;
+      // 国家作成・編集はメタデータのみの操作なので、ここで即時保存して
+      // 画面遷移やタブを閉じる前にIndexedDBへの書き込みを確定させる。
+      await persist();
       closeModal();
       renderNationsList();
       if(!isNew || currentView==='nationDetail') openNationDetail(n.id); else renderNationsList();
@@ -3835,7 +3962,7 @@ const MAP_TOOLS = [
   {id:'rect', icon:'⬚', tip:'範囲選択 (M)|矩形で範囲を選び、コピー(Ctrl+C)・切り取り(Ctrl+X)・貼り付け(Ctrl+V)ができます'},
   {sep:true},
   {id:'admin', icon:'⬡', tip:'行政区画(点と線)|点を打つと、その点とマウスがリアルタイムに線で結ばれます。最初の点に戻る/Enter/ダブルクリックで閉じます。塗りつぶしではなく境界線として表示されます'},
-  {id:'vertex', icon:'◇', tip:'頂点編集|行政区画や線の頂点をドラッグで移動、Alt+クリックで頂点追加、Deleteで削除します'},
+  {id:'vertex', icon:'◇', tip:'頂点編集|行政区画や線の頂点をドラッグで移動、Alt+クリックで頂点追加、頂点削除モードまたはDeleteで削除します'},
   {id:'river', icon:'≈', tip:'河川|クリックした瞬間から線がマウスに追従します。クリックで頂点確定、ダブルクリック/Enterで完成、Escで取消'},
   {id:'road', icon:'╌', tip:'道路|クリックした瞬間から線がマウスに追従します'},
   {id:'rail', icon:'╫', tip:'鉄道|クリックした瞬間から線がマウスに追従します'},
@@ -3846,6 +3973,8 @@ const MAP_TOOLS = [
   {id:'label', icon:'Aa', tip:'ラベル|クリックした場所に文字ラベルを置きます'},
   {id:'event-place', icon:'✦', tip:'出来事|クリックした場所を舞台にした歴史イベントを追加します'},
   {id:'custom-point', icon:'◆', tip:'カスタム点|ユーザー定義レイヤーに点を配置します'},
+  {sep:true},
+  {id:'refimg', icon:'🖼', tip:'参考画像 (R)|下描き・古地図・トレース元などの参考画像を地図上に配置します。ドラッグで移動、四隅で拡大縮小、上のハンドルで回転できます'},
 ];
 const LINE_TOOLS = ['river','road','rail','border','range'];
 const BRUSH_TOOLS = ['brush-terrain','brush-elev','brush-nation','brush-area','eraser'];
@@ -3875,6 +4004,8 @@ function renderMapToolbar(){
     `<div class="sep"></div>
      <button class="btn small" id="finishLineBtn" style="display:none;">✔ 確定</button>
      <button class="btn small" id="cancelLineBtn" style="display:none;">✕ 取消</button>
+     <button class="btn small danger" id="vertexDeleteModeBtn" style="display:none;">⌫ 頂点削除</button>
+     <button class="btn small danger" id="lineDeleteModeBtn" style="display:none;">⌫ 線削除</button>
      <select id="mapModeSelect" data-tip="表示モード|地図の見せ方を切り替えます">${MAP_MODES.map(m=>`<option value="${m.id}" ${m.id===w.mapMode?'selected':''}>${esc(m.label)}</option>`).join('')}</select>
      <span data-tip="国家色の不透明度|国家領土の半透明の濃さを調整します" style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim);">国家色<input type="range" id="nationOpacityRange" min="0.1" max="0.9" step="0.05" value="${w.nationColorOpacity}" style="width:70px;"></span>
      <button class="icon-btn ${w.pixelGridEnabled?'active':''}" id="pixelGridToggle" data-tip="ピクセルグリッド|大きく拡大したときにピクセルの格子を表示します">▦</button>
@@ -3899,14 +4030,40 @@ function renderMapToolbar(){
   document.getElementById('canvasBtn').addEventListener('click', openCanvasModal);
   document.getElementById('finishLineBtn').addEventListener('click', finishDraft);
   document.getElementById('cancelLineBtn').addEventListener('click', cancelDraft);
+  document.getElementById('vertexDeleteModeBtn').addEventListener('click', ()=>{
+    if(MapView.tool!=='vertex') return;
+    MapView.vertexDeleteMode = !MapView.vertexDeleteMode;
+    if(MapView.vertexDeleteMode) MapView.lineDeleteMode=false;
+    refreshToolbarActive();
+    renderMap();
+  });
+  document.getElementById('lineDeleteModeBtn').addEventListener('click', ()=>{
+    if(MapView.tool!=='vertex') return;
+    MapView.lineDeleteMode = !MapView.lineDeleteMode;
+    if(MapView.lineDeleteMode) MapView.vertexDeleteMode=false;
+    refreshToolbarActive();
+    renderMap();
+  });
   document.getElementById('layerPanelToggle').addEventListener('click', ()=> document.getElementById('mapLayerPanel').classList.toggle('show'));
   document.getElementById('infoPanelToggle').addEventListener('click', ()=> document.getElementById('mapRightPanel').classList.toggle('show'));
   refreshToolbarActive();
 }
 function refreshToolbarActive(){
   document.querySelectorAll('#maptoolbar [data-tool]').forEach(b=> b.classList.toggle('active', b.dataset.tool===MapView.tool));
+  const del=document.getElementById('vertexDeleteModeBtn');
+  if(del){
+    del.style.display = MapView.tool==='vertex' ? 'inline-flex' : 'none';
+    del.classList.toggle('active', MapView.tool==='vertex' && !!MapView.vertexDeleteMode);
+    del.textContent = MapView.vertexDeleteMode ? '⌫ 頂点削除中' : '⌫ 頂点削除';
+  }
+  const ldel=document.getElementById('lineDeleteModeBtn');
+  if(ldel){
+    ldel.style.display = MapView.tool==='vertex' ? 'inline-flex' : 'none';
+    ldel.classList.toggle('active', MapView.tool==='vertex' && !!MapView.lineDeleteMode);
+    ldel.textContent = MapView.lineDeleteMode ? '⌫ 線削除中' : '⌫ 線削除';
+  }
   const wrap=document.getElementById('mapcanvaswrap');
-  if(wrap){ wrap.style.cursor = MapView.tool==='select'?'default': MapView.tool==='pan'?'grab': (BRUSH_TOOLS.includes(MapView.tool)?'none':'crosshair'); }
+  if(wrap){ wrap.style.cursor = MapView.tool==='vertex' && MapView.vertexDeleteMode ? 'not-allowed' : (MapView.tool==='select'||MapView.tool==='refimg')?'default': MapView.tool==='pan'?'grab': (BRUSH_TOOLS.includes(MapView.tool)?'none':'crosshair'); }
 }
 function toggleDraftButtons(){
   const show = !!MapView.draft;
@@ -3916,6 +4073,7 @@ function toggleDraftButtons(){
 function setTool(id){
   if(MapView.draft) cancelDraft(true);
   if(id==='paste' && !MapView.clip){ toast('先に範囲選択でコピーしてください','err'); return; }
+  if(id!=='vertex'){ MapView.vertexDeleteMode=false; MapView.lineDeleteMode=false; }
   const editing = BRUSH_TOOLS.includes(id) || id==='fill' || id==='paste' || LINE_TOOLS.includes(id) || id==='admin' || id==='vertex' || id==='city-place';
   if(editing && !mapEditAllowed() && currentRole!=='history' ){ /* 権限のない役割は閲覧のみ */ }
   MapView.tool = id;
@@ -3941,6 +4099,42 @@ function nationPickHtml(w){
 function areaPickHtml(w){
   return `<div class="lp-list">${w.areas.map(a=>`<div class="lp-item ${a.rid===MapView.paint.area?'active':''}" data-area="${a.rid}"><span class="sw" style="background:${esc(a.color)}"></span>${esc(a.name)}<small style="color:var(--text-faint);margin-left:4px;">${AREA_KIND_LABEL[a.kind]||''}</small></div>`).join('')||'<div class="empty" style="padding:8px;">領域がありません</div>'}</div>
     <button class="btn small" id="areaAddBtn" style="margin-top:6px;">＋新しい領域</button>`;
+}
+function refImgPanelHtml(w){
+  const list = w.refImages||[]; const sel = MapView.selectedRefImageId; const r = sel ? refImageById(sel) : null;
+  let h = `<div class="lp-sec"><h5>参考画像</h5>
+    <div class="lp-note">下描き・古地図・トレース元などの画像を地図に重ねます。地図データそのものには変換されません。</div>
+    <label class="btn small" style="cursor:pointer;margin-top:4px;">＋画像を追加<input type="file" id="refimgAddInput" accept="image/png,image/jpeg,image/webp" style="display:none;"></label>
+    <div class="lp-list" style="margin-top:8px;">${list.length?list.slice().reverse().map(im=>`
+      <div class="lp-item ${im.id===sel?'active':''}" data-refimg-sel="${im.id}">
+        <span class="sw" style="background:#333;background-image:url('${assetUrl(im.assetId)}');background-size:cover;background-position:center;"></span>
+        ${esc(im.name)}
+        <span style="margin-left:auto;display:flex;gap:2px;">
+          <button class="icon-btn small ${im.visible!==false?'active':''}" data-refimg-vis="${im.id}" title="表示/非表示" style="width:22px;height:22px;">${im.visible!==false?'👁':'—'}</button>
+          <button class="icon-btn small ${im.locked?'active':''}" data-refimg-lock="${im.id}" title="ロック" style="width:22px;height:22px;">${im.locked?'🔒':'🔓'}</button>
+        </span>
+      </div>`).join(''):'<div class="empty" style="padding:8px;">参考画像がありません</div>'}</div>
+    </div>`;
+  if(r){
+    h += `<div class="lp-sec"><h5>選択中: ${esc(r.name)}</h5>
+      <label>名前</label><input type="text" id="refimgName" value="${esc(r.name)}">
+      <div class="lp-row"><span>不透明度</span><input type="range" id="refimgOpacity" min="0" max="100" value="${Math.round((r.opacity!==undefined?r.opacity:0.6)*100)}"><b id="refimgOpacityV">${Math.round((r.opacity!==undefined?r.opacity:0.6)*100)}%</b></div>
+      <div class="lp-row wrap">${[100,75,50,25,10].map(v=>`<button class="sizebtn" data-refimg-op="${v}">${v}%</button>`).join('')}</div>
+      <div class="lp-row"><span>回転</span><input type="range" id="refimgRotation" min="0" max="360" step="1" value="${Math.round(((r.rotation||0)%360+360)%360)}"><b id="refimgRotationV">${Math.round(r.rotation||0)}°</b></div>
+      <div class="lp-row wrap">${[0,45,90,180,270].map(v=>`<button class="sizebtn" data-refimg-rot="${v}">${v}°</button>`).join('')}</div>
+      <label class="lp-chk"><input type="checkbox" id="refimgAspect" ${r.lockAspect?'checked':''}>縦横比を固定してリサイズ</label>
+      <label class="lp-chk"><input type="checkbox" id="refimgVisible" ${r.visible!==false?'checked':''}>表示する</label>
+      <label class="lp-chk"><input type="checkbox" id="refimgLocked" ${r.locked?'checked':''}>ロック(誤操作を防止)</label>
+      <label>参考画像同士の重なり順</label>
+      <div class="lp-row wrap">
+        <button class="sizebtn ${r.order!=='above'?'active':''}" data-refimg-order="below">他の参考画像より下</button>
+        <button class="sizebtn ${r.order==='above'?'active':''}" data-refimg-order="above">他の参考画像より上</button>
+      </div>
+      <small class="hint">参考画像は常に地形・国家領土・行政境界・国境・都市・ラベルなど地図データの上に半透明で重なります(地図データそのものにはなりません)。複数の参考画像がある場合、ここでその画像同士の前後関係だけを調整できます。</small>
+      <div class="lp-row wrap" style="margin-top:8px;"><button class="btn small danger" id="refimgDelete">削除</button></div>
+      </div>`;
+  }
+  return h;
 }
 function renderMapLayerPanel(){
   const el=document.getElementById('mapLayerPanel'); const w=W(); if(!el||!w) return; const t=MapView.tool; const B=MapView.brush;
@@ -4018,13 +4212,14 @@ function renderMapLayerPanel(){
   else if(t==='custom-point'){
     h += `<div class="lp-sec"><h5>カスタム点レイヤー</h5><div class="lp-list">${w.customLayers.filter(l=>l.id!=='labels').map(l=>`<div class="lp-item ${l.id===MapView.activeCustomLayerId?'active':''}" data-cl="${l.id}"><span class="sw" style="background:${esc(l.color)}"></span>${esc(l.name)}</div>`).join('')||'<div class="empty" style="padding:8px;">レイヤーなし</div>'}</div><button class="btn small" id="clAdd" style="margin-top:6px;">＋レイヤー追加</button></div>`;
   }
+  else if(t==='refimg') h += refImgPanelHtml(w);
   const AL=MapView.activeLayers;
   const lrow=(k,l,extra)=>`<label class="lp-chk"><input type="checkbox" data-layer="${k}" ${AL[k]?'checked':''}>${l}${extra||''}</label>`;
   h += `<div class="lp-sec"><h5>表示レイヤー</h5>
     ${lrow('terrain','地形')}${lrow('nations','国家領土(半透明)')}${lrow('borders','国境線')}${lrow('coast','海岸線')}${lrow('areas','占領・係争・領域')}
     ${lrow('admin','行政区画(境界線)')}${lrow('adminLabels','行政区画名')}
     ${Object.keys(LINE_KINDS).map(k=>lrow(k,LINE_KINDS[k].label)).join('')}
-    ${lrow('cities','都市・拠点')}${lrow('labels','ラベル')}${lrow('events','出来事')}${lrow('pixelGrid','ピクセルグリッド')}
+    ${lrow('cities','都市・拠点')}${lrow('labels','ラベル')}${lrow('events','出来事')}${lrow('pixelGrid','ピクセルグリッド')}${lrow('refImages','参考画像(すべて)')}
     ${w.customLayers.filter(l=>l.id!=='labels').map(l=>`<label class="lp-chk"><input type="checkbox" data-cvis="${l.id}" ${l.visible!==false?'checked':''}><span class="sw2" style="background:${esc(l.color)}"></span>${esc(l.name)}</label>`).join('')}</div>`;
   el.innerHTML = h; wireLeftPanel(el); el.scrollTop = st;
 }
@@ -4058,6 +4253,25 @@ function wireLeftPanel(el){
   const ft=$('#fillTol'); if(ft) ft.addEventListener('input',()=>{ MapView.fill.tol=Number(ft.value); $('#fillTolV').textContent=ft.value; });
   $$('[data-fbar]').forEach(c=> c.addEventListener('change',()=>{ MapView.fill.bar[c.dataset.fbar]=c.checked; }));
   $$('[data-cpl]').forEach(c=> c.addEventListener('change',()=>{ MapView.copyLayers[c.dataset.cpl]=c.checked; }));
+  const riAdd=$('#refimgAddInput'); if(riAdd) riAdd.addEventListener('change', ()=>{ if(riAdd.files[0]) handleRefImageFile(riAdd.files[0]); riAdd.value=''; });
+  $$('[data-refimg-sel]').forEach(b=> b.addEventListener('click',()=>{ MapView.selectedRefImageId=b.dataset.refimgSel; renderMapLayerPanel(); renderMap(); }));
+  $$('[data-refimg-vis]').forEach(b=> b.addEventListener('click',(ev)=>{ ev.stopPropagation(); const im=refImageById(b.dataset.refimgVis); if(im) mutate('参考画像の表示切替', ()=>{ im.visible = im.visible===false; }); renderMapLayerPanel(); renderMap(); }));
+  $$('[data-refimg-lock]').forEach(b=> b.addEventListener('click',(ev)=>{ ev.stopPropagation(); const im=refImageById(b.dataset.refimgLock); if(im) mutate('参考画像のロック切替', ()=>{ im.locked = !im.locked; }); renderMapLayerPanel(); renderMap(); }));
+  const rSel = MapView.selectedRefImageId ? refImageById(MapView.selectedRefImageId) : null;
+  if(rSel){
+    const rn=$('#refimgName'); if(rn) rn.addEventListener('change', ()=>{ mutate('参考画像名を変更', ()=>{ rSel.name=rn.value||'参考画像'; }); renderMapLayerPanel(); });
+    const ro=$('#refimgOpacity'); if(ro) ro.addEventListener('input', ()=>{ rSel.opacity=Number(ro.value)/100; $('#refimgOpacityV').textContent=ro.value+'%'; renderMap(); });
+    if(ro) ro.addEventListener('change', ()=>{ mutate('参考画像の不透明度', ()=>{ rSel.opacity=Number(ro.value)/100; }); });
+    $$('[data-refimg-op]').forEach(b=> b.addEventListener('click', ()=>{ mutate('参考画像の不透明度', ()=>{ rSel.opacity=Number(b.dataset.refimgOp)/100; }); renderMapLayerPanel(); renderMap(); }));
+    const rr=$('#refimgRotation'); if(rr) rr.addEventListener('input', ()=>{ rSel.rotation=Number(rr.value); $('#refimgRotationV').textContent=Math.round(rSel.rotation)+'°'; renderMap(); });
+    if(rr) rr.addEventListener('change', ()=>{ mutate('参考画像を回転', ()=>{ rSel.rotation=Number(rr.value); }); });
+    $$('[data-refimg-rot]').forEach(b=> b.addEventListener('click', ()=>{ mutate('参考画像を回転', ()=>{ rSel.rotation=Number(b.dataset.refimgRot); }); renderMapLayerPanel(); renderMap(); }));
+    const ra=$('#refimgAspect'); if(ra) ra.addEventListener('change', ()=>{ mutate('縦横比固定を切替', ()=>{ rSel.lockAspect=ra.checked; }); });
+    const rv=$('#refimgVisible'); if(rv) rv.addEventListener('change', ()=>{ mutate('参考画像の表示切替', ()=>{ rSel.visible=rv.checked; }); renderMap(); });
+    const rl=$('#refimgLocked'); if(rl) rl.addEventListener('change', ()=>{ mutate('参考画像のロック切替', ()=>{ rSel.locked=rl.checked; }); renderMapLayerPanel(); renderMap(); });
+    $$('[data-refimg-order]').forEach(b=> b.addEventListener('click', ()=>{ mutate('参考画像の表示順', ()=>{ rSel.order=b.dataset.refimgOrder; }); renderMapLayerPanel(); renderMap(); }));
+    const rd=$('#refimgDelete'); if(rd) rd.addEventListener('click', ()=>{ confirmDelete('この参考画像を削除しますか？', ()=>{ mutate('参考画像を削除', ()=>{ w.refImages = w.refImages.filter(x=>x.id!==rSel.id); }); MapView.selectedRefImageId=null; renderMapLayerPanel(); renderMap(); }); });
+  }
   const rc=$('#rsCopy'); if(rc) rc.addEventListener('click',()=> copyRect(false));
   const rt=$('#rsCut'); if(rt) rt.addEventListener('click',()=> copyRect(true));
   const rp=$('#rsPaste'); if(rp) rp.addEventListener('click',()=> setTool('paste'));
@@ -4218,6 +4432,16 @@ function insertVertexAt(seg, sx, sy){
   });
   renderMap();
 }
+function deleteLineNear(sx,sy){
+  const seg=nearestSegment(sx,sy,10);
+  if(!seg) return;
+  if(seg.coll!=='lines'){ toast('行政区画の境界は「線削除」の対象外です','err'); return; }
+  const R=resolveState(currentStateId()); const obj=R.lines.get(seg.id); if(!obj) return;
+  const label=LINE_KINDS[obj.kind]?.label||'線';
+  mutate(label+'を削除', ()=>{ vecDel('lines',seg.id); });
+  if(MapView.selection && MapView.selection.type==='line' && MapView.selection.id===seg.id) MapView.selection=null;
+  renderMap(); renderMapRightPanel();
+}
 function deleteVertexNear(sx,sy){
   const v=nearestVertex(sx,sy,10); if(!v) return;
   const R=resolveState(currentStateId()); const obj = v.coll==='admin'? R.admin.get(v.id) : R.lines.get(v.id); if(!obj) return;
@@ -4248,6 +4472,90 @@ function pickAt(px,py){
   toast('拾いました'); renderMapLayerPanel();
 }
 
+/* ---------- 参考画像(オーバーレイ)---------- */
+const RefImgCache = new Map(); // assetId -> {img, ready}
+function refImgList(){ const w=W(); return (w&&Array.isArray(w.refImages)) ? w.refImages : []; }
+function refImageById(id){ return refImgList().find(r=>r.id===id); }
+function getRefImageEl(r){
+  if(!r || !r.assetId) return null;
+  let c = RefImgCache.get(r.assetId);
+  const url = assetUrl(r.assetId);
+  if(!c || c.src!==url){
+    const img = new Image(); c = {img, ready:false, src:url};
+    img.onload = ()=>{ c.ready=true; renderMap(); };
+    img.onerror = ()=>{ c.ready=false; };
+    img.src = url;
+    RefImgCache.set(r.assetId, c);
+  }
+  return c.ready ? c.img : null;
+}
+function refImgCenter(r){ return {x:r.x+r.w/2, y:r.y+r.h/2}; }
+/* ローカル(未回転)座標 <-> 地図unit座標 */
+function refImgToLocal(r, ux, uy){
+  const c=refImgCenter(r); const rad=-(r.rotation||0)*Math.PI/180;
+  const dx=ux-c.x, dy=uy-c.y;
+  return { x: dx*Math.cos(rad)-dy*Math.sin(rad), y: dx*Math.sin(rad)+dy*Math.cos(rad) };
+}
+function refImgFromLocal(r, lx, ly){
+  const c=refImgCenter(r); const rad=(r.rotation||0)*Math.PI/180;
+  return { x: c.x + lx*Math.cos(rad)-ly*Math.sin(rad), y: c.y + lx*Math.sin(rad)+ly*Math.cos(rad) };
+}
+function refImgHitAt(ux,uy){
+  const list = refImgList();
+  for(let i=list.length-1;i>=0;i--){
+    const r=list[i]; if(r.visible===false) continue;
+    const l = refImgToLocal(r,ux,uy);
+    if(Math.abs(l.x)<=r.w/2 && Math.abs(l.y)<=r.h/2) return r;
+  }
+  return null;
+}
+const REFIMG_HANDLE_PX = 9, REFIMG_ROTATE_OFFSET_PX = 26;
+function refImgHandlesScreen(r){
+  const hw=r.w/2, hh=r.h/2;
+  const corners = [[-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh]].map(([lx,ly])=>{ const u=refImgFromLocal(r,lx,ly); return unitToScreen(u.x,u.y); });
+  const rotLocal = {x:0, y:-hh - REFIMG_ROTATE_OFFSET_PX/MapView.scale};
+  const rotU = refImgFromLocal(r, rotLocal.x, rotLocal.y);
+  const rotate = unitToScreen(rotU.x, rotU.y);
+  return {corners, rotate};
+}
+function refImgHandleHit(r, sx, sy){
+  const H = refImgHandlesScreen(r);
+  if(Math.hypot(H.rotate.x-sx, H.rotate.y-sy) <= REFIMG_HANDLE_PX+3) return {type:'rotate'};
+  const names=['nw','ne','se','sw'];
+  for(let i=0;i<4;i++){ if(Math.hypot(H.corners[i].x-sx, H.corners[i].y-sy) <= REFIMG_HANDLE_PX+3) return {type:'resize', corner:names[i]}; }
+  return null;
+}
+function addRefImageFromAsset(assetId, name){
+  const w=W(); if(!w) return null;
+  const img = new Image(); const url = assetUrl(assetId);
+  const wrap=document.getElementById('mapcanvaswrap');
+  const centerScreen = wrap ? {x:wrap.clientWidth/2, y:wrap.clientHeight/2} : {x:0,y:0};
+  const centerUnit = screenToUnit(centerScreen.x, centerScreen.y);
+  const placeholder = {id:uid('refimg'), name:name||'参考画像', assetId, x:centerUnit.x-w.extentW*0.15, y:centerUnit.y-w.extentH*0.15, w:w.extentW*0.3, h:w.extentH*0.3, rotation:0, opacity:0.6, visible:true, locked:false, order:'below', lockAspect:true};
+  img.onload = ()=>{
+    const ar = img.naturalWidth/img.naturalHeight || 1;
+    if(ar>=1){ placeholder.w = w.extentW*0.35; placeholder.h = placeholder.w/ar; } else { placeholder.h = w.extentH*0.35; placeholder.w = placeholder.h*ar; }
+    placeholder.x = centerUnit.x - placeholder.w/2; placeholder.y = centerUnit.y - placeholder.h/2;
+    renderMap();
+  };
+  img.src = url;
+  mutate('参考画像を追加: '+(name||''), ()=>{ w.refImages.push(placeholder); });
+  MapView.selectedRefImageId = placeholder.id; MapView.tool='refimg'; refreshToolbarActive();
+  renderMapLayerPanel(); renderMap();
+  return placeholder;
+}
+function handleRefImageFile(file){
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    const w=W(); const asset={id:uid('asset'), name:file.name, dataUrl:reader.result, type:'image'};
+    mutate('画像をアップロード: '+file.name, ()=>{ w.assets.push(asset); });
+    addRefImageFromAsset(asset.id, file.name.replace(/\.[a-zA-Z0-9]+$/,''));
+    toast('参考画像を追加しました');
+  };
+  reader.readAsDataURL(file);
+}
+
 /* ---------- 入力の配線 ---------- */
 function wireMapCanvas(){
   const wrap=document.getElementById('mapcanvaswrap');
@@ -4268,7 +4576,7 @@ function wireMapCanvas(){
     const P=screenToPx(p.x,p.y); const px=Math.floor(P.x), py=Math.floor(P.y);
     const w=W();
     if(tool==='select'){ MapView.drag={type:'selpan', sx:p.x, sy:p.y, ox:MapView.offX, oy:MapView.offY, moved:false}; return; }
-    const needsEdit = BRUSH_TOOLS.includes(tool)||tool==='fill'||tool==='paste'||LINE_TOOLS.includes(tool)||tool==='admin'||tool==='vertex'||tool==='city-place'||tool==='label'||tool==='custom-point';
+    const needsEdit = BRUSH_TOOLS.includes(tool)||tool==='fill'||tool==='paste'||LINE_TOOLS.includes(tool)||tool==='admin'||tool==='vertex'||tool==='city-place'||tool==='label'||tool==='custom-point'||tool==='refimg';
     if(needsEdit && !mapEditAllowed()){ toast('現在の権限(「'+roleLabel(currentRole)+'」)では地図を編集できません','err'); return; }
     if(BRUSH_TOOLS.includes(tool)){
       if(e.altKey && tool!=='eraser'){ pickAt(px,py); return; }
@@ -4291,8 +4599,17 @@ function wireMapCanvas(){
       renderOverlayOnly(); return;
     }
     if(tool==='vertex'){
+      if(MapView.lineDeleteMode){
+        deleteLineNear(p.x,p.y);
+        return;
+      }
+      const v=nearestVertex(p.x,p.y,10);
+      if(MapView.vertexDeleteMode){
+        if(v) deleteVertexNear(p.x,p.y);
+        return;
+      }
       if(e.altKey){ const seg=nearestSegment(p.x,p.y,8); if(seg) insertVertexAt(seg,p.x,p.y); return; }
-      const v=nearestVertex(p.x,p.y,10); if(v){ beginVertexDrag(v); }
+      if(v){ beginVertexDrag(v); }
       return;
     }
     const u=screenToUnit(p.x,p.y);
@@ -4306,6 +4623,25 @@ function wireMapCanvas(){
       if(!MapView.activeCustomLayerId){ toast('左のパネルでカスタムレイヤーを選択してください','err'); return; }
       const text=prompt('ラベル(任意)')||''; const layer=w.customLayers.find(l=>l.id===MapView.activeCustomLayerId);
       mutate('カスタム点を配置', ()=>{ layer.points.push({x:round2(u.x),y:round2(u.y),label:text}); }); renderMap(); return;
+    }
+    if(tool==='refimg'){
+      const selR = MapView.selectedRefImageId ? refImageById(MapView.selectedRefImageId) : null;
+      if(selR && selR.visible!==false && !selR.locked){
+        const hit = refImgHandleHit(selR, p.x, p.y);
+        if(hit){
+          const c0=refImgCenter(selR);
+          if(hit.type==='rotate'){ MapView.drag={type:'refimg-rotate', id:selR.id, cx:c0.x, cy:c0.y}; }
+          else { MapView.drag={type:'refimg-resize', id:selR.id, corner:hit.corner, x0:selR.x, y0:selR.y, w0:selR.w, h0:selR.h, rot:selR.rotation||0, aspect:selR.w/selR.h}; }
+          return;
+        }
+      }
+      const hitR = refImgHitAt(u.x,u.y);
+      MapView.selectedRefImageId = hitR ? hitR.id : null;
+      renderMapLayerPanel();
+      if(hitR && !hitR.locked){ MapView.drag={type:'refimg-move', id:hitR.id, sx:u.x, sy:u.y, x0:hitR.x, y0:hitR.y}; }
+      else if(hitR && hitR.locked){ toast('この参考画像はロックされています'); }
+      renderMap();
+      return;
     }
   });
 
@@ -4325,6 +4661,22 @@ function wireMapCanvas(){
         const u=screenToUnit(p.x,p.y); const t=snapForDrag(p,e);
         d.refs.forEach(r=>{ r.pt.x=round2(t.x); r.pt.y=round2(t.y); });
         d.objs.forEach(o=>vecTouched(o)); renderMap();
+      } else if(d.type==='refimg-move'){
+        const r=refImageById(d.id); if(r){ const u=screenToUnit(p.x,p.y); r.x = round2(d.x0 + (u.x-d.sx)); r.y = round2(d.y0 + (u.y-d.sy)); renderMap(); }
+      } else if(d.type==='refimg-resize'){
+        const r=refImageById(d.id); if(r){
+          const u=screenToUnit(p.x,p.y);
+          const local = refImgToLocal({x:d.x0,y:d.y0,w:d.w0,h:d.h0,rotation:d.rot}, u.x, u.y);
+          let hw=Math.abs(local.x), hh=Math.abs(local.y);
+          if(e.shiftKey || (r.lockAspect)){ const asp=d.aspect||1; if(hw/Math.max(hh,0.0001) > asp) hh=hw/asp; else hw=hh*asp; }
+          const newW=Math.max(4,hw*2), newH=Math.max(4,hh*2);
+          const c0={x:d.x0+d.w0/2, y:d.y0+d.h0/2};
+          r.w=round2(newW); r.h=round2(newH);
+          r.x=round2(c0.x-r.w/2); r.y=round2(c0.y-r.h/2);
+          renderMap();
+        }
+      } else if(d.type==='refimg-rotate'){
+        const r=refImageById(d.id); if(r){ const u=screenToUnit(p.x,p.y); const ang=Math.atan2(u.y-d.cy, u.x-d.cx)*180/Math.PI + 90; r.rotation = Math.round(ang*10)/10; renderMap(); }
       }
     } else {
       if(LINE_TOOLS.includes(tool)||tool==='admin'){ MapView.cursorUnit=snapPoint(p.x,p.y,e); }
@@ -4340,6 +4692,9 @@ function wireMapCanvas(){
     else if(d.type==='stroke'){ Stroke.end(); renderMap(); scheduleRightPanel(); }
     else if(d.type==='rect'){ renderMapLayerPanel(); }
     else if(d.type==='vertex'){ W().updatedAt=Date.now(); logHistory('頂点を移動(境界線)'); persistDebounced(); scheduleRightPanel(); }
+    else if(d.type==='refimg-move'){ W().updatedAt=Date.now(); logHistory('参考画像を移動'); persistDebounced(); renderMapLayerPanel(); }
+    else if(d.type==='refimg-resize'){ W().updatedAt=Date.now(); logHistory('参考画像のサイズを変更'); persistDebounced(); renderMapLayerPanel(); }
+    else if(d.type==='refimg-rotate'){ W().updatedAt=Date.now(); logHistory('参考画像を回転'); persistDebounced(); renderMapLayerPanel(); }
   };
   wrap.addEventListener('pointerup', endDrag);
   wrap.addEventListener('pointercancel', endDrag);
@@ -4385,9 +4740,14 @@ function mapKeyHandler(e){
   if(ctrl && (k==='x'||k==='X')){ if(MapView.rectSel && mapEditAllowed()){ copyRect(true); eat(); } return; }
   if(ctrl && (k==='v'||k==='V')){ if(MapView.clip){ setTool('paste'); eat(); } return; }
   if(ctrl||e.altKey) return;
-  if((k==='Delete') && MapView.tool==='vertex' && MapView.pointer){ deleteVertexNear(MapView.pointer.x,MapView.pointer.y); eat(); return; }
+  if((k==='Delete') && MapView.tool==='vertex' && MapView.pointer){
+    if(MapView.lineDeleteMode) deleteLineNear(MapView.pointer.x,MapView.pointer.y);
+    else deleteVertexNear(MapView.pointer.x,MapView.pointer.y);
+    eat(); return;
+  }
   if(k==='['||k===']'){ const B=MapView.brush; const i=SIZE_PRESETS.findIndex(s=>s>=B.size); const cur = SIZE_PRESETS[i<0?SIZE_PRESETS.length-1:i]; const idx=SIZE_PRESETS.indexOf(cur); B.size = SIZE_PRESETS[clamp(idx+(k===']'?1:-1),0,SIZE_PRESETS.length-1)]; renderMapLayerPanel(); renderOverlayOnly(); eat(); return; }
-  const map={v:'select',h:'pan',b:MapView.lastBrushTool,e:'eraser',g:'fill',i:'pick',m:'rect'};
+  if((k==='Delete') && MapView.tool==='refimg' && MapView.selectedRefImageId){ const im=refImageById(MapView.selectedRefImageId); if(im && !im.locked){ mutate('参考画像を削除', ()=>{ W().refImages = W().refImages.filter(x=>x.id!==im.id); }); MapView.selectedRefImageId=null; renderMapLayerPanel(); renderMap(); } eat(); return; }
+  const map={v:'select',h:'pan',b:MapView.lastBrushTool,e:'eraser',g:'fill',i:'pick',m:'rect',r:'refimg'};
   if(map[k.toLowerCase()]){ setTool(map[k.toLowerCase()]); eat(); }
 }
 
@@ -5414,6 +5774,7 @@ async function initApp(){
   document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
   document.getElementById('modalOverlay').addEventListener('click', (e)=>{ if(e.target.id==='modalOverlay') closeModal(); });
   wireSearch();
+  wireTutorialUI();
 
   // list-view toolbars
   document.getElementById('nationNewBtn').addEventListener('click', ()=> openNationModal(null));
@@ -5499,6 +5860,392 @@ async function initApp(){
     switchView('dashboard');
   }
   updateUndoRedoButtons();
+}
+
+/* =========================================================
+   Part 6: チュートリアルモード
+   -------------------------------------------------------
+   実際のUI要素をハイライトしながら段階的に機能を学べるガイド。
+   進捗は localStorage に保存(既存の世界データ構造には触れない)。
+   実際に操作を試す部分は、既存データを壊さないよう
+   専用の「チュートリアル用サンプル世界」上で行う。
+   ========================================================= */
+const TUT_PROGRESS_KEY = 'atlasTutorialProgress_v1';
+const TUT_FIRSTRUN_KEY = 'atlasTutorialFirstRunDone_v1';
+function tutLoadProgress(){ try{ return JSON.parse(localStorage.getItem(TUT_PROGRESS_KEY))||{}; }catch(e){ return {}; } }
+function tutSaveProgress(p){ try{ localStorage.setItem(TUT_PROGRESS_KEY, JSON.stringify(p)); }catch(e){} }
+function tutCategoryStatus(catId){ return tutLoadProgress()[catId] || 'notstarted'; }
+function tutSetCategoryStatus(catId, status){ const p=tutLoadProgress(); p[catId]=status; tutSaveProgress(p); }
+function tutResetAllProgress(){ tutSaveProgress({}); }
+const TUT_STATUS_LABEL = {notstarted:'未開始', inprogress:'進行中', completed:'完了'};
+
+function tutById(id){ return ()=>document.getElementById(id); }
+function tutByQuery(q){ return ()=>document.querySelector(q); }
+
+function buildTutorialCategories(){
+  return [
+    { id:'basics', label:'基礎', icon:'◈',
+      desc:'ツール全体の概要、画面構成、保存・読込、JSON入出力を学びます。',
+      steps:[
+        { title:'ようこそ', desc:'この架空世界管理ツールでは、地図・国家・年代・歴史・外交・戦争・人物・組織・統計などをひとつの「世界」データとして一元管理できます。このチュートリアルでは、実際の画面を操作しながら主な機能を紹介します。<br><br>操作を試す間は<b>チュートリアル専用のサンプル世界</b>に切り替わるので、今お使いの世界データが壊れる心配はありません。', target:null },
+        { title:'画面の構成(ナビゲーション)', desc:'左側の一覧から、地図・国家・年表・戦争・人物などの画面を切り替えます。今後もいつでもここから移動できます。', target:tutById('navrail'), view:'dashboard' },
+        { title:'世界の切り替えと作成', desc:'ここで保存済みの世界を切り替えたり、＋ボタンから新しい世界を作成したりできます。1つのツールの中に、複数の架空世界を保存しておけます。', target:tutById('worldSelect') },
+        { title:'現在の年代', desc:'ここで表示中の「年代」を切り替えます。地図・国家一覧・統計など、画面のほぼすべてがこの年代を基準にして表示されます。左右の矢印で1年ずつ、数値を直接入力してジャンプもできます。', target:tutById('yearInput') },
+        { title:'保存について', desc:'編集内容はブラウザ内(IndexedDB)に自動的に保存されます。ここをクリックすると、今すぐ手動で保存できます。', target:tutById('saveBtn'), action:{type:'click', sel:'#saveBtn'}, note:'「保存」ボタンをクリックしてみましょう' },
+        { title:'元に戻す / やり直す', desc:'地図やデータの編集操作は、この2つのボタン(Ctrl+Z / Ctrl+Y)でいつでも取り消し・やり直しができます。', target:tutById('undoBtn') },
+        { title:'検索', desc:'国家・地域・都市・人物・組織・戦争・条約・出来事などを横断的に検索できます(ショートカット: Ctrl+K)。', target:tutById('searchBtn') },
+        { title:'ファイル(JSONインポート/エクスポート)', desc:'「ファイル」メニューから、世界データ全体をJSONファイルとして書き出したり、JSONファイルから読み込んだりできます。地図タイル・国家・年表などすべてのデータが1つのファイルに含まれ、バックアップや他端末への引き継ぎに使えます。', target:tutById('fileMenuBtn'), action:{type:'click', sel:'#fileMenuBtn'}, note:'「ファイル ▾」をクリックして開いてみましょう' },
+        { title:'書き出し / 読み込みメニュー', desc:'ここから世界データ全体のJSON書き出し、統計・国家一覧のCSV書き出し、地図のPNG書き出し、JSONの読み込み、バックアップの作成ができます。閉じるには「閉じる」を押すか、枠の外をクリックしてください。', target:tutByQuery('#modalBox'), expectModalOpen:true },
+      ]
+    },
+    { id:'mapedit', label:'地図編集', icon:'🗺',
+      desc:'地図の基本操作・ズーム/パン・地形/国家領土ブラシ・行政区画・河川や道路・都市・参考画像などを学びます。',
+      steps:[
+        { title:'地図画面へ', desc:'左のナビゲーションから「地図」を開きます。ここがこのツールの中心画面です。', target:tutByQuery('.navitem[data-view="map"]'), action:{type:'click', sel:'.navitem[data-view="map"]'}, note:'「地図」をクリックしてください' },
+        { title:'地図の見方', desc:'ホイールでズーム、ドラッグ(手のひらツールまたは中ボタン/右ボタン/Space+ドラッグ)でパンできます。右上の＋/－/⤾ボタンでも操作できます。', target:tutById('mapcanvaswrap'), view:'map' },
+        { title:'ツールバー', desc:'この列に、選択・手のひら・各種ブラシ・線描画ツールなどが並んでいます。押すとツールが切り替わります。', target:tutById('maptoolbar'), view:'map' },
+        { title:'地形ブラシを試す', desc:'「地形ブラシ」を選ぶと、下のパネルで地形の種類・ブラシサイズ・硬さ・不透明度を選べます。地図上でドラッグすると、選んだ地形が塗られます。', target:tutByQuery('[data-tool="brush-terrain"]'), view:'map', action:{type:'click', sel:'[data-tool="brush-terrain"]'}, note:'「地形ブラシ」アイコンをクリックしてください' },
+        { title:'実際に地形を塗ってみる', desc:'左のパネルで地形タイプを選び、地図上をドラッグして実際に塗ってみましょう。ここは練習用のサンプル世界なので自由に試せます。', target:tutById('mapcanvaswrap'), view:'map', allow:[tutById('mapcanvaswrap'), tutById('mapLayerPanel'), tutById('maptoolbar')], action:{type:'pointerup', sel:'#mapcanvaswrap'}, note:'左のパネルで地形タイプ/ブラシサイズを選び、地図上をドラッグして地形を塗ってみましょう(終わったら手を離してください)' },
+        { title:'消しゴム / 塗りつぶし', desc:'「消しゴム」は指定したレイヤー(地形・標高・国家領土・領域)を消せます。「塗りつぶし」は閉じた領域をクリックひとつで一括に塗れます。', target:tutByQuery('[data-tool="eraser"]'), view:'map' },
+        { title:'国家領土ブラシ', desc:'「国家領土ブラシ」を選ぶと、左パネルで塗る国家を選んでから地図をドラッグするだけで、その国の領土(半透明の色)を塗れます。国家は「国家」カテゴリーで作成方法を学びます。', target:tutByQuery('[data-tool="brush-nation"]'), view:'map' },
+        { title:'行政区画', desc:'「行政区画」ツールは、点を打つと点とマウスがリアルタイムに線でつながり、最初の点をクリックするかEnter/ダブルクリックで閉じて完成します。塗りつぶさず境界線だけを表示します。', target:tutByQuery('[data-tool="admin"]'), view:'map' },
+        { title:'国境・河川・道路・鉄道・山脈', desc:'これらはすべて「線」を描くツールです。クリックした瞬間から線がマウスに追従し、ダブルクリックまたはEnterで確定します。国境線は通常、国家領土の境目から自動的に表示されますが、条約線など手描きの線もこのツールで描けます。', target:tutByQuery('[data-tool="river"]'), view:'map' },
+        { title:'都市・ラベル・出来事', desc:'「都市・拠点」ツールでクリックした位置に都市や村・首都・港などを配置できます。「ラベル」は文字だけの注記、「出来事」は地図上に紐づく歴史イベントを配置します。', target:tutByQuery('[data-tool="city-place"]'), view:'map' },
+        { title:'表示レイヤー', desc:'左パネル下部の「表示レイヤー」で、地形・国家領土・国境線・行政区画・河川など、それぞれの表示/非表示を切り替えられます。参考画像もここでまとめて表示/非表示にできます。', target:tutById('mapLayerPanel'), view:'map' },
+        { title:'マップモード', desc:'ここで「地形+政治」「政治地図」「行政地図」「人口地図」など、地図の見せ方をまとめて切り替えられます。', target:tutById('mapModeSelect'), view:'map' },
+        { title:'参考画像を追加する', desc:'「参考画像」ツールでは、手描きの下描き・古地図・実在の地図などの画像を、地図の上に補助的なレイヤーとして重ねて表示できます。<b>画像そのものは地図データには変換されません</b>。あくまでトレースや配置の参考用です。', target:tutByQuery('[data-tool="refimg"]'), view:'map', action:{type:'click', sel:'[data-tool="refimg"]'}, note:'「参考画像」アイコン(🖼)をクリックしてください' },
+        { title:'画像を読み込む', desc:'「＋画像を追加」からPNG/JPG/WebPの画像を選ぶと、地図の中心に配置されます。ここでは省略してもかまいません(スキップで進めます)。読み込んだ画像はドラッグで移動、四隅のハンドルで拡大縮小、上のハンドルで回転できます。', target:tutById('mapLayerPanel'), view:'map', allow:[tutById('mapLayerPanel'), tutById('mapcanvaswrap'), tutById('maptoolbar')], beforeShow:()=>{ setTool('refimg'); }, action:{type:'change', sel:'#refimgAddInput'}, note:'画像ファイルを選ぶか、スキップして次へ進んでください' },
+        { title:'参考画像の透明度と重なり順', desc:'選択した参考画像は、不透明度を10%〜100%で調整でき、薄くすればその上から地形や国境をなぞって描き込めます。参考画像は地図データそのものにはならず、常に地形・国家領土・行政区画・国境・都市などの地図データより上に半透明で重ねて表示されます。複数の参考画像を配置した場合は、「他の参考画像より上/下」で画像同士の前後関係だけを調整できます。ロックすると誤操作で動かなくなります。', target:tutById('mapLayerPanel'), view:'map', allow:[tutById('mapLayerPanel'), tutById('mapcanvaswrap'), tutById('maptoolbar')] },
+        { title:'年代タイムライン', desc:'地図画面下部のタイムラインで、年代の切り替え・自動再生・タイムラプス再生ができます。年代・世界線の詳しい管理は「年代・歴史」カテゴリーで扱います。', target:tutById('mapTimeline'), view:'map' },
+      ]
+    },
+    { id:'nations', label:'国家', icon:'⛨',
+      desc:'国家の作成・国旗や国章・首都・領土・建国や滅亡・分裂統合・後継関係を学びます。',
+      steps:[
+        { title:'国家一覧へ', desc:'左のナビゲーションから「国家」を開きます。', target:tutByQuery('.navitem[data-view="nations"]'), action:{type:'click', sel:'.navitem[data-view="nations"]'}, note:'「国家」をクリックしてください' },
+        { title:'国家を作成してみる', desc:'「＋ 国家を作成」を押すと、国家名・略称・国旗/国章画像・国家カラー・首都・建国年などを入力するフォームが開きます。実際に押して開いてみましょう。', target:tutById('nationNewBtn'), view:'nations', action:{type:'click', sel:'#nationNewBtn'}, note:'「＋ 国家を作成」をクリックしてください' },
+        { title:'国家情報を入力', desc:'国家名を入力し、必要なら国旗・国章(画像アセット)、国家カラー、政体、建国年なども設定できます。入力したら保存してみましょう。', target:tutByQuery('#modalBox'), expectModalOpen:true, action:{type:'modalclose'}, note:'国家名を入力して「作成」を押してください' },
+        { title:'国家の年代別データ(時代)', desc:'国家の詳細画面では、時代ごとに国名・政体・首都などが変化する「時代」を追加できます。同じ国でも年代によって表示名や統治体制を変えられます。', target:tutById('nationGrid') },
+        { title:'国家領土を塗る', desc:'国家を作ったら、地図画面で「国家領土ブラシ」を選び、左パネルでこの国を選択してから地図をドラッグすると、その国の領土(半透明色)として塗れます。', target:tutById('nationGrid') },
+        { title:'建国・滅亡・分裂・統合・併合', desc:'国家の詳細画面や系譜機能では、建国年・滅亡年に加えて、分裂して複数の後継国家になったり、複数の国家が統合・併合されたりする関係を「先代/後継」として記録できます。', target:tutById('nationGrid') },
+        { title:'国家系譜', desc:'左のナビゲーションの「系譜」では、国家同士の建国・分裂・統合・継承の関係をツリー図として視覚的に確認できます。', target:tutByQuery('.navitem[data-view="genealogy"]') },
+      ]
+    },
+    { id:'history', label:'年代・歴史', icon:'🕰',
+      desc:'年代の作成・切り替え・年代別地図・差分・分岐した歴史・メインタイムライン・歴史イベントを学びます。',
+      steps:[
+        { title:'年代・世界線マネージャ', desc:'地図画面ツールバーの「🕰 年代・世界線」から、年代ごとの地図(差分)の作成・分岐・メイン世界線の設定・関連イベントの管理ができます。', target:tutById('stateMgrBtn'), view:'map' },
+        { title:'年代別の地図と差分', desc:'新しい年代の地図状態を作ると、前の年代との「差分」だけが保存されます。地形をすべて描き直す必要はなく、変化した部分だけを編集すれば、それ以外は自動的に引き継がれます。', target:tutById('stateMgrBtn') },
+        { title:'分岐した歴史(世界線)', desc:'同じ年代から複数の「世界線」を分岐させて、if-history的な並行世界を作ることもできます。世界線ごとに異なる地図・国家の状態を持たせられます。', target:tutById('tlLineSel'), view:'map' },
+        { title:'メインタイムラインと再生', desc:'地図下部のタイムラインでは、メイン世界線に沿って年代を自動再生したり、指定した期間をタイムラプス再生したりできます。', target:tutById('tlPlayBtn'), view:'map' },
+        { title:'歴史年表(出来事)', desc:'左のナビゲーションの「年表」では、世界全体の歴史イベントを年代順に記録・閲覧できます。「＋ 出来事を追加」で新しい出来事を作成しましょう。', target:tutByQuery('.navitem[data-view="timeline"]'), action:{type:'click', sel:'.navitem[data-view="timeline"]'}, note:'「年表」をクリックしてください' },
+        { title:'出来事を追加する', desc:'「＋ 出来事を追加」から、タイトル・年・カテゴリ・関連国家・地図上の座標などを設定できます。地図上の座標を設定すると、その年代の地図上にマーカーとして表示されます。', target:tutById('eventNewBtn'), view:'timeline', action:{type:'click', sel:'#eventNewBtn'}, note:'「＋ 出来事を追加」をクリックしてください' },
+        { title:'地図とイベントの関連付け', desc:'出来事フォームで座標を指定すると、その出来事はイベントの年に近い年代の地図上に×印のマーカーとして表示されます(表示レイヤーの「出来事」)。関連する国家・地域・都市・人物・組織・条約なども選べます。', target:tutByQuery('#modalBox'), expectModalOpen:true, action:{type:'modalclose'}, note:'内容を入力するか、そのまま閉じて次に進んでください' },
+      ]
+    },
+    { id:'diplomacy', label:'外交・戦争', icon:'⚔',
+      desc:'戦争、外交関係、条約とその有効期間、領土変更との連携を学びます。',
+      steps:[
+        { title:'戦争', desc:'左のナビゲーションの「戦争」では、戦争・紛争ごとに参加国・開始/終了年・死傷者・結果などを記録できます。「＋ 戦争を追加」で作成してみましょう。', target:tutByQuery('.navitem[data-view="wars"]'), action:{type:'click', sel:'.navitem[data-view="wars"]'}, note:'「戦争」をクリックしてください' },
+        { title:'戦争を作成してみる', desc:'「＋ 戦争を追加」を押すと、戦争名・開始/終了年・参加国とその陣営・原因・結果などを入力するフォームが開きます。実際に押して開いてみましょう。', target:tutById('warNewBtn'), view:'wars', action:{type:'click', sel:'#warNewBtn'}, note:'「＋ 戦争を追加」をクリックしてください' },
+        { title:'参加国と結果を入力', desc:'戦争名・開始/終了年を入力し、「参加国家」のセレクトから国家を選んで陣営名(任意)を付けて追加できます。原因・結果・説明も入力したら保存してみましょう。', target:tutByQuery('#modalBox'), expectModalOpen:true, action:{type:'modalclose'}, note:'参加国を追加し、「保存」を押してください' },
+        { title:'外交関係', desc:'「外交」画面では、国家間の同盟・敵対・従属などの関係をネットワーク図で確認できます。「＋ 関係を追加」で新しい関係を登録します。', target:tutByQuery('.navitem[data-view="diplomacy"]'), action:{type:'click', sel:'.navitem[data-view="diplomacy"]'}, note:'「外交」をクリックしてください' },
+        { title:'外交関係を作成してみる', desc:'「＋ 関係を追加」を押すと、2つの国家と関係の種類(同盟/敵対/従属など)・開始年を設定するフォームが開きます。実際に押して開いてみましょう。', target:tutById('relationNewBtn'), view:'diplomacy', action:{type:'click', sel:'#relationNewBtn'}, note:'「＋ 関係を追加」をクリックしてください' },
+        { title:'関係の内容を入力', desc:'2つの国家、関係の種類、開始年(と終了年)を選んで保存できます。', target:tutByQuery('#modalBox'), expectModalOpen:true, action:{type:'modalclose'}, note:'内容を選んで「保存」を押してください' },
+        { title:'条約・文書', desc:'左のナビゲーションの「文書」では、条約・法律・宣言などの歴史文書を管理します。条約には発効日・失効日(有効期間)を設定でき、有効期間内かどうかが自動判定されます。「＋ 文書を追加」で作成してみましょう。', target:tutByQuery('.navitem[data-view="treaties"]'), action:{type:'click', sel:'.navitem[data-view="treaties"]'}, note:'「文書」をクリックしてください' },
+        { title:'文書を作成してみる', desc:'「＋ 文書を追加」を押すと、文書名・種類・締結日・発効日・有効終了日・参加国・内容などを入力するフォームが開きます。実際に押して開いてみましょう。', target:tutById('treatyNewBtn'), view:'treaties', action:{type:'click', sel:'#treatyNewBtn'}, note:'「＋ 文書を追加」をクリックしてください' },
+        { title:'条約の有効期間を入力', desc:'締結日・発効日・有効終了日(または「現在も有効」)を設定できます。現在の年代がその範囲内であれば「有効」として扱われ、関連する国家の外交状態にも反映されます。参加国も選んで保存してみましょう。', target:tutByQuery('#modalBox'), expectModalOpen:true, action:{type:'modalclose'}, note:'締結日などを入力し、「保存」を押してください' },
+        { title:'領土変更との連携', desc:'戦争や条約の結果として国境が変わった場合は、地図画面の「国家領土ブラシ」で新しい年代の地図状態に領土変更を描き込みます。イベント・条約側で関連する年代の地図状態を紐づけておくと、あとから経緯を追いやすくなります。', target:tutById('treatyGrid') },
+      ]
+    },
+    { id:'database', label:'データベース', icon:'▤',
+      desc:'人物・組織・文書・統計・グラフ・検索を学びます。',
+      steps:[
+        { title:'人物', desc:'左のナビゲーションの「人物」では、国家元首・軍人・学者などの人物を登録できます。「＋ 人物を追加」から作成してみましょう。', target:tutByQuery('.navitem[data-view="people"]'), action:{type:'click', sel:'.navitem[data-view="people"]'}, note:'「人物」をクリックしてください' },
+        { title:'人物を作成してみる', desc:'「＋ 人物を追加」を押すと、氏名・生没年・所属国家・肩書・経歴などを入力するフォームが開きます。実際に押して開いてみましょう。', target:tutById('personNewBtn'), view:'people', action:{type:'click', sel:'#personNewBtn'}, note:'「＋ 人物を追加」をクリックしてください' },
+        { title:'人物情報を入力', desc:'氏名や所属国家、肩書、生没年、経歴などを入力して保存できます。', target:tutByQuery('#modalBox'), expectModalOpen:true, action:{type:'modalclose'}, note:'氏名などを入力して「保存」を押してください' },
+        { title:'組織', desc:'「組織」画面では、政党・軍隊・王朝・企業・宗教組織などの勢力を登録できます。「＋ 組織を追加」で作成してみましょう。', target:tutByQuery('.navitem[data-view="orgs"]'), action:{type:'click', sel:'.navitem[data-view="orgs"]'}, note:'「組織」をクリックしてください' },
+        { title:'組織を作成してみる', desc:'「＋ 組織を追加」を押すと、組織名・種類・所属国家・設立年などを入力するフォームが開きます。実際に押して開いてみましょう。', target:tutById('orgNewBtn'), view:'orgs', action:{type:'click', sel:'#orgNewBtn'}, note:'「＋ 組織を追加」をクリックしてください' },
+        { title:'組織情報を入力', desc:'組織名・種類・所属国家・設立年などを入力して保存できます。', target:tutByQuery('#modalBox'), expectModalOpen:true, action:{type:'modalclose'}, note:'組織名などを入力して「保存」を押してください' },
+        { title:'統計とグラフ', desc:'左のナビゲーションの「統計」では、国家・地域・都市ごとに人口・GDPなどの指標を年代別に登録し、折れ線・棒・円・散布図のグラフとして可視化できます。', target:tutByQuery('.navitem[data-view="stats"]'), action:{type:'click', sel:'.navitem[data-view="stats"]'}, note:'「統計」をクリックしてください' },
+        { title:'データを入力してみる', desc:'対象の種類(国家/地域/都市)と個体を選び、指標を選んでから、年と値を入力して「追加」を押すとテーブルとグラフに反映されます。「指標を管理」から新しい指標(独自の統計項目)も追加できます。', target:tutById('statAddBtn'), view:'stats', allow:[tutById('statEntityType'), tutById('statEntityId'), tutById('metricManageBtn'), tutById('statNewYear'), tutById('statNewMetric'), tutById('statNewValue'), tutById('statAddBtn')], action:{type:'click', sel:'#statAddBtn'}, note:'対象・指標・年・値を入力し、「追加」を押してください' },
+        { title:'複数国家の比較', desc:'グラフパネルの「複数国家を比較」から、同じ指標を複数の国家・地域・都市で重ねて表示できます。', target:tutById('chartCompareBtn'), view:'stats' },
+        { title:'検索', desc:'画面上部の🔍(Ctrl+K)から、国家・地域・都市・人物・組織・戦争・条約・出来事を横断的に検索できます。', target:tutById('searchBtn') },
+      ]
+    },
+    { id:'admin', label:'管理', icon:'✎',
+      desc:'ダッシュボード・バージョン・変更履歴・Undo/Redo・バックアップ・アセット管理・UI設定を学びます。',
+      steps:[
+        { title:'ダッシュボード(概要)', desc:'左のナビゲーションの「概要」では、世界全体の統計・最近の出来事・進行中の戦争・人口/GDPの推移・最近の編集をまとめて確認できます。', target:tutByQuery('.navitem[data-view="dashboard"]'), action:{type:'click', sel:'.navitem[data-view="dashboard"]'}, note:'「概要」をクリックしてください' },
+        { title:'編集履歴', desc:'「履歴」画面では、これまでの編集操作の記録を一覧できます。Undo/Redoは上部ツールバーのボタンから行います。', target:tutByQuery('.navitem[data-view="history"]'), action:{type:'click', sel:'.navitem[data-view="history"]'}, note:'「履歴」をクリックしてください' },
+        { title:'Undo / Redo', desc:'上部の↶(元に戻す)・↷(やり直す)ボタン、またはCtrl+Z / Ctrl+Yで、直前の編集を取り消したりやり直したりできます。', target:tutById('undoBtn') },
+        { title:'アセット管理(資料)', desc:'「資料」画面では、国旗・国章・肖像などの画像素材(アセット)をまとめて管理できます。ここでアップロードした画像は、国家の国旗や参考画像などから選んで使えます。', target:tutByQuery('.navitem[data-view="assets"]'), action:{type:'click', sel:'.navitem[data-view="assets"]'}, note:'「資料」をクリックしてください' },
+        { title:'バージョン・バックアップ', desc:'「設定」画面の「バックアップ / 世代管理」から、いつでも手動でバックアップを作成し、あとから復元できます。IndexedDBにタイルデータごと保存されます。', target:tutByQuery('.navitem[data-view="settings"]'), action:{type:'click', sel:'.navitem[data-view="settings"]'}, note:'「設定」をクリックしてください' },
+        { title:'UI設定(表示権限)', desc:'設定画面の「表示権限」では、この端末内での簡易的な編集制限(管理者・国家編集者・歴史編集者・地図編集者・閲覧者)を切り替えられます。外部認証ではなく、ロールプレイ用の簡易機能です。', target:tutById('settingsBody') },
+        { title:'これでチュートリアルは完了です', desc:'お疲れさまでした。ここまでで、このツールの主な機能を一通り確認しました。「？」ボタンからはいつでもこのチュートリアルを再開・やり直しできます。練習用のサンプル世界は、このあと保存するか破棄するか選べます。', target:null },
+      ]
+    },
+  ];
+}
+
+const Tutorial = {
+  active:false, cats:null, catIdx:0, stepIdx:0,
+  practiceWorldId:null, prevWorldId:null, prevRole:null, prevView:null,
+  _cleanup:null, _raf:0,
+};
+
+function tutCurrentCat(){ return Tutorial.cats[Tutorial.catIdx]; }
+function tutCurrentStep(){ return tutCurrentCat().steps[Tutorial.stepIdx]; }
+
+function tutCreatePracticeWorld(){
+  const world = createWorld({name:'チュートリアル用サンプル世界', startYear:0, endYear:500, mapWidth:512, mapHeight:512, fill:'ocean_land'});
+  world._tutorialPractice = true;
+  DB.worlds[world.id] = world;
+  return world.id;
+}
+function tutEnterPracticeWorld(){
+  Tutorial.prevWorldId = DB.currentWorldId;
+  Tutorial.prevRole = currentRole;
+  currentRole = 'admin';
+  Tutorial.practiceWorldId = tutCreatePracticeWorld();
+  DB.currentWorldId = Tutorial.practiceWorldId; Store.worldId = Tutorial.practiceWorldId; Store.fullRewrite = true;
+  History.clear(); mapInitialized=false; MapView._neverFit=false; MapView.pinnedStateId=null; MapView.selection=null; MapView.stats=null; MapView.selectedRefImageId=null;
+  fullRerender();
+}
+async function tutExitPracticeWorld(save){
+  const pid = Tutorial.practiceWorldId;
+  currentRole = Tutorial.prevRole || 'admin';
+  if(pid && DB.worlds[pid]){
+    if(save){
+      const name = prompt('練習データを世界として保存します。名前を付けてください', 'チュートリアル練習世界');
+      if(name){ DB.worlds[pid].name = name; delete DB.worlds[pid]._tutorialPractice; markMeta(); await persist(); }
+      else { save = false; }
+    }
+    if(!save){
+      await deleteWorldStorage(pid);
+      delete DB.worlds[pid];
+    }
+  }
+  Tutorial.practiceWorldId = null;
+  if(Tutorial.prevWorldId && DB.worlds[Tutorial.prevWorldId]){
+    DB.currentWorldId = Tutorial.prevWorldId; Store.worldId = Tutorial.prevWorldId; Store.fullRewrite = true;
+    await Store.loadWorld(Tutorial.prevWorldId);
+  } else if(Object.keys(DB.worlds).length){
+    DB.currentWorldId = Object.keys(DB.worlds)[0]; Store.worldId = DB.currentWorldId; await Store.loadWorld(DB.currentWorldId);
+  } else {
+    DB.currentWorldId = null;
+  }
+  History.clear(); mapInitialized=false; MapView._neverFit=false; MapView.pinnedStateId=null; MapView.selection=null; MapView.stats=null; MapView.selectedRefImageId=null;
+  if(DB.currentWorldId){
+    document.getElementById('welcome').classList.add('hidden'); document.getElementById('app').style.display='flex';
+    fullRerender(); switchView('dashboard');
+  } else {
+    document.getElementById('app').style.display='none'; document.getElementById('welcome').classList.remove('hidden');
+  }
+}
+
+function openTutorialHub(){
+  Tutorial.cats = Tutorial.cats || buildTutorialCategories();
+  const rows = Tutorial.cats.map(c=>{
+    const st = tutCategoryStatus(c.id);
+    return `<div class="tut-hub-cat" data-tut-cat="${c.id}">
+      <div class="tuth-row"><h5>${c.icon} ${esc(c.label)}</h5><span class="tut-badge ${st}">${TUT_STATUS_LABEL[st]}</span></div>
+      <p>${esc(c.desc)}</p>
+    </div>`;
+  }).join('');
+  const body = `<div class="lp-note" style="margin-bottom:10px;">実際の画面を操作しながら、カテゴリーごとに機能を学べます。操作を試すあいだは、チュートリアル専用のサンプル世界に切り替わります(現在のデータは保護されます)。</div>${rows}`;
+  openModal('チュートリアル', body, [
+    {label:'進捗をリセット', onClick:()=>{ tutResetAllProgress(); closeModal(); openTutorialHub(); }},
+    {label:'閉じる', cls:'primary', onClick: closeModal},
+  ]);
+  document.querySelectorAll('[data-tut-cat]').forEach(el=> el.addEventListener('click', ()=>{ closeModal(); startTutorialCategory(el.dataset.tutCat); }));
+}
+function startTutorialCategory(catId){
+  Tutorial.cats = Tutorial.cats || buildTutorialCategories();
+  const idx = Tutorial.cats.findIndex(c=>c.id===catId);
+  if(idx<0) return;
+  if(!Tutorial.active){ Tutorial.prevView = currentView; tutEnterPracticeWorld(); }
+  Tutorial.active = true; Tutorial.catIdx = idx; Tutorial.stepIdx = 0;
+  tutSetCategoryStatus(catId, 'inprogress');
+  document.getElementById('tutorialLayer').classList.add('active');
+  tutRenderStep();
+}
+function tutTeardownStepListeners(){ if(Tutorial._cleanup){ try{ Tutorial._cleanup(); }catch(e){} Tutorial._cleanup=null; } }
+function tutAdvanceFromAction(){ tutTeardownStepListeners(); tutNextStep(); }
+function tutAttachAction(step){
+  const a = step.action; if(!a) return;
+  if(a.type==='click' || a.type==='change'){
+    const handler=(e)=>{ if(e.target.closest(a.sel)) tutAdvanceFromAction(); };
+    document.addEventListener(a.type, handler, true);
+    Tutorial._cleanup = ()=> document.removeEventListener(a.type, handler, true);
+  } else if(a.type==='pointerup'){
+    const el = document.querySelector(a.sel); if(!el) return;
+    const handler=()=> tutAdvanceFromAction();
+    el.addEventListener('pointerup', handler, {once:true});
+    Tutorial._cleanup = ()=> el.removeEventListener('pointerup', handler);
+  } else if(a.type==='modalclose'){
+    const overlay=document.getElementById('modalOverlay');
+    const obs = new MutationObserver(()=>{ if(!overlay.classList.contains('active')) tutAdvanceFromAction(); });
+    obs.observe(overlay, {attributes:true, attributeFilter:['class']});
+    Tutorial._cleanup = ()=> obs.disconnect();
+  }
+}
+/* ---------- 操作許可(ホワイトリスト)制御 ----------
+   目的: チュートリアル中は「今のステップに関係ないUI」への操作だけを防ぎ、
+   現在のステップを完遂するために必要なUI(ボタン・入力欄・セレクト・
+   チェックボックス・ファイル選択・地図上のクリックなど)はすべて操作可能にする。
+
+   構造:
+     ステップ定義 { target, allow: [...] }
+       target … ハイライト(スポットライト)表示の基準になる要素(1つ)
+       allow  … このステップで実際に操作してよい要素の一覧(0個以上)。
+                target も自動的に allow の一部として扱われる。
+     要素は "() => Element" 形式の関数で指定する(target/tutById/tutByQueryと同じ形)。
+     クリック時に要素の contains() で判定するため、
+     モーダル内で動的に追加される行(参加国チップの追加/削除など)や
+     アセットピッカーのようにモーダル内部に埋め込まれた子要素も
+     自動的に許可範囲に含まれる(要素IDを1つ1つ列挙する必要がない)。
+
+   さらに、モーダル(#modalOverlay.active)が開いている間は、
+   ステップ側で個別に allow を指定していなくても #modalBox 全体
+   (ヘッダー/本文/フッター)を常に操作可能にする。
+   国家・戦争・出来事・条約・人物・組織などの作成フォームは、
+   このモーダル自体が唯一の入力手段であるため、この1つのルールだけで
+   「保存ボタンしか押せない」「入力欄に触れない」という
+   ステップ間で共通の不具合を、ステップごとに個別対応せず解消できる。
+*/
+function tutResolveAllowElements(step){
+  const out = [];
+  const push = (fn)=>{ try{ const el = typeof fn==='function' ? fn() : fn; if(el) out.push(el); }catch(e){} };
+  if(step.target) push(step.target);
+  if(step.allow){ (Array.isArray(step.allow)?step.allow:[step.allow]).forEach(push); }
+  return out;
+}
+function tutIsAllowedClick(node){
+  if(!node) return false;
+  const layer = document.getElementById('tutorialLayer');
+  if(layer && layer.contains(node)) return true; // チュートリアル自身のUI(次へ/戻る/スキップ/終了)は常に許可
+  // モーダルが開いている間は、モーダル全体を常に操作可能にする(上記コメント参照)
+  const modalOverlay = document.getElementById('modalOverlay');
+  if(modalOverlay && modalOverlay.classList.contains('active')){
+    if(node===modalOverlay) return true; // 枠外クリックで閉じる操作も許可
+    const modalBox = document.getElementById('modalBox');
+    if(modalBox && modalBox.contains(node)) return true;
+  }
+  const step = Tutorial.active ? tutCurrentStep() : null;
+  if(!step) return true;
+  const allowed = tutResolveAllowElements(step);
+  return allowed.some(el => el===node || (el.contains && el.contains(node)));
+}
+let _tutGuardInstalled = false;
+function tutInstallGuard(){
+  if(_tutGuardInstalled) return; _tutGuardInstalled = true;
+  const guard = (e)=>{
+    if(!Tutorial.active) return; // 通常モードでは一切介入しない(既存の操作制限には触れない)
+    if(tutIsAllowedClick(e.target)) return;
+    e.preventDefault(); e.stopPropagation(); if(e.stopImmediatePropagation) e.stopImmediatePropagation();
+  };
+  // pointerdown: フォーカス移動やドラッグ開始自体を止める(テキスト入力欄への誤フォーカスも防ぐ)
+  document.addEventListener('pointerdown', guard, true);
+  document.addEventListener('mousedown', guard, true);
+  // click: ボタンのクリック確定を止める(pointerdownでpreventDefaultされなかった経路の保険)
+  document.addEventListener('click', guard, true);
+}
+function tutPositionUI(step){
+  const card = document.getElementById('tutCard');
+  const hl = document.getElementById('tutHighlight');
+  const targetEl = step.target ? step.target() : null;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const setBlockers = (rect)=>{
+    const top=document.getElementById('tutB-top'), bottom=document.getElementById('tutB-bottom'), left=document.getElementById('tutB-left'), right=document.getElementById('tutB-right');
+    if(!rect){ top.style.cssText=`top:0;left:0;width:${vw}px;height:${vh}px;`; bottom.style.cssText='width:0;height:0;'; left.style.cssText='width:0;height:0;'; right.style.cssText='width:0;height:0;'; return; }
+    top.style.cssText=`top:0;left:0;width:${vw}px;height:${Math.max(0,rect.top)}px;`;
+    bottom.style.cssText=`top:${rect.bottom}px;left:0;width:${vw}px;height:${Math.max(0,vh-rect.bottom)}px;`;
+    left.style.cssText=`top:${rect.top}px;left:0;width:${Math.max(0,rect.left)}px;height:${rect.height}px;`;
+    right.style.cssText=`top:${rect.top}px;left:${rect.right}px;width:${Math.max(0,vw-rect.right)}px;height:${rect.height}px;`;
+  };
+  if(targetEl){
+    const r = targetEl.getBoundingClientRect();
+    const pad=6;
+    const rect={top:r.top-pad, left:r.left-pad, right:r.right+pad, bottom:r.bottom+pad, width:r.width+pad*2, height:r.height+pad*2};
+    hl.classList.remove('none');
+    hl.style.top=rect.top+'px'; hl.style.left=rect.left+'px'; hl.style.width=rect.width+'px'; hl.style.height=rect.height+'px';
+    setBlockers(rect);
+    const cardW=320, cardH=Math.min(360, card.offsetHeight||220);
+    let cx = rect.right+16, cy = rect.top;
+    if(cx+cardW>vw-8) cx = Math.max(8, rect.left-cardW-16);
+    if(cx<8 || (rect.left-cardW-16)<8 && (rect.right+16+cardW)>vw-8){ cx = clamp(rect.left, 8, vw-cardW-8); cy = (rect.bottom+cardH+12<vh) ? rect.bottom+12 : Math.max(8, rect.top-cardH-12); }
+    cy = clamp(cy, 8, vh-8-cardH);
+    card.style.left=cx+'px'; card.style.top=cy+'px';
+  } else {
+    hl.classList.add('none');
+    setBlockers(null);
+    card.style.left = Math.round((vw-320)/2)+'px'; card.style.top = Math.round(vh*0.28)+'px';
+  }
+}
+function tutRenderStep(){
+  tutTeardownStepListeners();
+  const cat = tutCurrentCat(); const step = tutCurrentStep();
+  if(step.view && currentView!==step.view) switchView(step.view);
+  if(step.beforeShow) try{ step.beforeShow(); }catch(e){ console.warn(e); }
+  if(!step.expectModalOpen) closeModal();
+  document.getElementById('tutCardCat').textContent = cat.icon+' '+cat.label;
+  document.getElementById('tutStepNum').textContent = `ステップ ${Tutorial.stepIdx+1} / ${cat.steps.length}`;
+  document.getElementById('tutTitle').innerHTML = esc(step.title);
+  document.getElementById('tutDesc').innerHTML = step.desc;
+  const hint = document.getElementById('tutActionHint');
+  if(step.note){ hint.textContent = '👉 '+step.note; hint.classList.add('show'); } else hint.classList.remove('show');
+  document.getElementById('tutPrevBtn').disabled = (Tutorial.catIdx===0 && Tutorial.stepIdx===0);
+  const nextBtn = document.getElementById('tutNextBtn');
+  const isLast = (Tutorial.catIdx===Tutorial.cats.length-1 && Tutorial.stepIdx===cat.steps.length-1);
+  nextBtn.textContent = isLast ? '完了' : '次へ →';
+  if(step.action){ nextBtn.disabled = true; tutAttachAction(step); } else { nextBtn.disabled = false; }
+  requestAnimationFrame(()=> requestAnimationFrame(()=> tutPositionUI(step)));
+}
+function tutNextStep(){
+  const cat = tutCurrentCat();
+  if(Tutorial.stepIdx < cat.steps.length-1){ Tutorial.stepIdx++; tutRenderStep(); return; }
+  tutSetCategoryStatus(cat.id, 'completed');
+  if(Tutorial.catIdx < Tutorial.cats.length-1){ Tutorial.catIdx++; Tutorial.stepIdx=0; tutRenderStep(); }
+  else { endTutorial(); }
+}
+function tutPrevStep(){
+  if(Tutorial.stepIdx>0){ Tutorial.stepIdx--; tutRenderStep(); return; }
+  if(Tutorial.catIdx>0){ Tutorial.catIdx--; Tutorial.stepIdx=Tutorial.cats[Tutorial.catIdx].steps.length-1; tutRenderStep(); }
+}
+async function endTutorial(){
+  tutTeardownStepListeners();
+  document.getElementById('tutorialLayer').classList.remove('active');
+  closeModal();
+  Tutorial.active = false;
+  try{ localStorage.setItem(TUT_FIRSTRUN_KEY, '1'); }catch(e){}
+  openModal('練習データについて', `<p>チュートリアルお疲れさまでした。ここまで操作したデータは「チュートリアル用サンプル世界」に保存されています。</p><p>このまま世界の一つとして保存しますか？ それとも破棄して元の世界に戻りますか？</p>`, [
+    {label:'破棄して戻る', onClick: async ()=>{ closeModal(); await tutExitPracticeWorld(false); }},
+    {label:'保存する', cls:'primary', onClick: async ()=>{ closeModal(); await tutExitPracticeWorld(true); }},
+  ]);
+}
+function skipTutorial(){ endTutorial(); }
+function wireTutorialUI(){
+  tutInstallGuard();
+  document.getElementById('tutCloseBtn').addEventListener('click', skipTutorial);
+  document.getElementById('tutSkipBtn').addEventListener('click', skipTutorial);
+  document.getElementById('tutNextBtn').addEventListener('click', tutNextStep);
+  document.getElementById('tutPrevBtn').addEventListener('click', tutPrevStep);
+  document.getElementById('tutorialHelpBtn').addEventListener('click', openTutorialHub);
+  const wtb = document.getElementById('welcomeTutorialBtn');
+  if(wtb) wtb.addEventListener('click', openTutorialHub);
+  window.addEventListener('resize', debounce(()=>{ if(Tutorial.active) tutPositionUI(tutCurrentStep()); }, 100));
+  try{
+    if(!localStorage.getItem(TUT_FIRSTRUN_KEY)){
+      setTimeout(()=>{ openFirstRunPrompt(); }, 500);
+    }
+  }catch(e){}
+}
+function openFirstRunPrompt(){
+  openModal('はじめまして', `<p>このツールは非常に多機能なので、初めての方にはインタラクティブなチュートリアルをおすすめしています。実際の画面を操作しながら、主な機能をひと通り確認できます(あとからでも「？」ボタンでいつでも開始できます)。</p>`, [
+    {label:'あとで(スキップ)', onClick:()=>{ try{ localStorage.setItem(TUT_FIRSTRUN_KEY,'1'); }catch(e){} closeModal(); }},
+    {label:'チュートリアルを始める', cls:'primary', onClick:()=>{ try{ localStorage.setItem(TUT_FIRSTRUN_KEY,'1'); }catch(e){} closeModal(); openTutorialHub(); }},
+  ]);
 }
 
 document.addEventListener('DOMContentLoaded', initApp);
